@@ -1,0 +1,33 @@
+{
+  "name": "arena-video",
+  "version": "1.0.0",
+  "description": "Plataforma local para upload, biblioteca e player de videos esportivos.",
+  "main": "server.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "node server.js",
+    "check": "node --check server.js"
+  },
+  "keywords": [
+    "video",
+    "sports",
+    "upload"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.30.3"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.7.0",
+    "autoprefixer": "^10.5.0",
+    "postcss": "^8.5.10",
+    "tailwindcss": "^3.4.17",
+    "vite": "^5.4.21"
+  }
+}
