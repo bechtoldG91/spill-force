@@ -2,6 +2,7 @@ node_modules/
 storage/videos/*
 !storage/videos/.gitkeep
 storage/*.json
+storage/.runtime/
 *.log
 .DS_Store
 Thumbs.db

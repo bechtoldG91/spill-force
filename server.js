@@ -5,6 +5,8 @@ const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { Transform } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
+const { spawn } = require('node:child_process');
+const ffmpegPath = require('ffmpeg-static');
 
 const PORT = Number(process.env.PORT || 3000);
 const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 1024);
@@ -18,14 +20,13 @@ const DATA_FILE = path.join(STORAGE_DIR, 'videos.json');
 const ANNOTATIONS_FILE = path.join(STORAGE_DIR, 'annotations.json');
 const PLAYLISTS_FILE = path.join(STORAGE_DIR, 'playlists.json');
 const MAX_JSON_BODY_BYTES = 5 * 1024 * 1024;
-const DEFAULT_PLAYLIST_ID = 'geral';
-const DEFAULT_PLAYLIST = {
-  id: DEFAULT_PLAYLIST_ID,
-  name: 'Geral',
-  description: 'Videos sem playlist especifica.',
-  createdAt: '2026-04-22T00:00:00.000Z',
-  updatedAt: '2026-04-22T00:00:00.000Z'
-};
+const LEGACY_DEFAULT_PLAYLIST_ID = 'geral';
+const PLAYLIST_DATE_FORMATTER = new Intl.DateTimeFormat('pt-BR', {
+  timeZone: 'America/Sao_Paulo',
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric'
+});
 
 const STATIC_MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -41,13 +42,12 @@ const STATIC_MIME = {
 };
 
 const VIDEO_MIME = {
-  '.mp4': 'video/mp4',
-  '.m4v': 'video/mp4',
-  '.mov': 'video/quicktime',
-  '.webm': 'video/webm',
-  '.ogv': 'video/ogg',
   '.avi': 'video/x-msvideo',
-  '.mkv': 'video/x-matroska'
+  '.mov': 'video/quicktime',
+  '.mp4': 'video/mp4',
+  '.mpeg': 'video/mpeg',
+  '.mpg': 'video/mpeg',
+  '.wmv': 'video/x-ms-wmv'
 };
 
 let metadataWriteQueue = Promise.resolve();
@@ -108,12 +108,48 @@ function getVideoExtension(originalName, contentType) {
 
   const normalized = String(contentType || '').split(';')[0].toLowerCase();
   const match = Object.entries(VIDEO_MIME).find(([, mime]) => mime === normalized);
-  return match ? match[0] : '.mp4';
+  return match ? match[0] : '';
 }
 
 function isVideoLike(contentType, extension) {
   const normalized = String(contentType || '').split(';')[0].toLowerCase();
-  return normalized.startsWith('video/') || Boolean(VIDEO_MIME[extension]);
+  return Boolean(VIDEO_MIME[extension]) && (!normalized || normalized.startsWith('video/'));
+}
+
+function removeAudioTrack(inputPath, outputPath) {
+  return new Promise((resolve, reject) => {
+    if (!ffmpegPath) {
+      reject(new Error('FFMPEG_NOT_AVAILABLE'));
+      return;
+    }
+
+    const process = spawn(
+      ffmpegPath,
+      ['-y', '-i', inputPath, '-map', '0:v:0', '-an', '-c:v', 'copy', outputPath],
+      {
+        windowsHide: true,
+        stdio: ['ignore', 'ignore', 'pipe']
+      }
+    );
+
+    let stderr = '';
+    process.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+      if (stderr.length > 4000) {
+        stderr = stderr.slice(-4000);
+      }
+    });
+
+    process.once('error', reject);
+    process.once('exit', (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+
+      reject(new Error(`FFMPEG_AUDIO_STRIP_FAILED: ${stderr || `exit ${code}`}`));
+    });
+  });
 }
 
 async function readCatalog() {
@@ -159,11 +195,10 @@ async function readPlaylists() {
   try {
     const raw = await fsp.readFile(PLAYLISTS_FILE, 'utf8');
     const parsed = JSON.parse(raw);
-    const playlists = Array.isArray(parsed) ? parsed : [];
-    return ensureDefaultPlaylist(playlists);
+    return sanitizePlaylists(Array.isArray(parsed) ? parsed : []);
   } catch (error) {
     if (error.code === 'ENOENT') {
-      return [DEFAULT_PLAYLIST];
+      return [];
     }
     throw error;
   }
@@ -172,23 +207,8 @@ async function readPlaylists() {
 async function writePlaylists(playlists) {
   await ensureStorage();
   const tempFile = `${PLAYLISTS_FILE}.tmp`;
-  await fsp.writeFile(tempFile, `${JSON.stringify(ensureDefaultPlaylist(playlists), null, 2)}\n`, 'utf8');
+  await fsp.writeFile(tempFile, `${JSON.stringify(sanitizePlaylists(playlists), null, 2)}\n`, 'utf8');
   await fsp.rename(tempFile, PLAYLISTS_FILE);
-}
-
-function ensureDefaultPlaylist(playlists) {
-  const cleaned = playlists
-    .filter((playlist) => playlist && typeof playlist === 'object')
-    .map((playlist) => ({
-      id: safeText(playlist.id, 80) || randomUUID(),
-      name: safeText(playlist.name, 120) || 'Playlist',
-      description: safeText(playlist.description, 260),
-      createdAt: safeText(playlist.createdAt, 40) || new Date().toISOString(),
-      updatedAt: safeText(playlist.updatedAt, 40) || new Date().toISOString()
-    }));
-
-  const withoutDefault = cleaned.filter((playlist) => playlist.id !== DEFAULT_PLAYLIST_ID);
-  return [DEFAULT_PLAYLIST, ...withoutDefault];
 }
 
 async function writeAnnotationsStore(store) {
@@ -197,6 +217,15 @@ async function writeAnnotationsStore(store) {
   await fsp.writeFile(tempFile, `${JSON.stringify(store, null, 2)}\n`, 'utf8');
   await fsp.rename(tempFile, ANNOTATIONS_FILE);
 }
+
+const storageService = {
+  getVideos: readCatalog,
+  saveVideos: writeCatalog,
+  getPlaylists: readPlaylists,
+  savePlaylists: writePlaylists,
+  getAnnotations: readAnnotationsStore,
+  saveAnnotations: writeAnnotationsStore
+};
 
 async function readJsonBody(req) {
   const chunks = [];
@@ -225,8 +254,99 @@ function parseTags(raw) {
     .slice(0, 12);
 }
 
+function formatUploadPlaylistName(dateInput) {
+  const date = new Date(dateInput || Date.now());
+  return PLAYLIST_DATE_FORMATTER.format(Number.isNaN(date.getTime()) ? new Date() : date);
+}
+
+function sanitizePlaylists(playlists) {
+  return playlists
+    .filter((playlist) => playlist && typeof playlist === 'object')
+    .map((playlist) => ({
+      id: safeText(playlist.id, 80) || randomUUID(),
+      name: safeText(playlist.name, 120) || 'Playlist',
+      description: safeText(playlist.description, 260),
+      createdAt: safeText(playlist.createdAt, 40) || new Date().toISOString(),
+      updatedAt: safeText(playlist.updatedAt, 40) || new Date().toISOString()
+    }))
+    .filter((playlist) => playlist.id !== LEGACY_DEFAULT_PLAYLIST_ID && playlist.name.toLowerCase() !== 'geral');
+}
+
+function findPlaylistByName(playlists, name) {
+  const normalizedName = safeText(name, 120).toLowerCase();
+  if (!normalizedName) {
+    return null;
+  }
+
+  return playlists.find((playlist) => playlist.name.toLowerCase() === normalizedName) || null;
+}
+
+function ensurePlaylistForDate(playlists, dateInput) {
+  const name = formatUploadPlaylistName(dateInput);
+  const existing = findPlaylistByName(playlists, name);
+
+  if (existing) {
+    return existing;
+  }
+
+  const now = new Date().toISOString();
+  const playlist = {
+    id: randomUUID(),
+    name,
+    description: '',
+    createdAt: now,
+    updatedAt: now
+  };
+
+  playlists.push(playlist);
+  return playlist;
+}
+
+function normalizeLibraryState(playlists, videos) {
+  const nextPlaylists = sanitizePlaylists(playlists);
+  const knownPlaylistIds = new Set(nextPlaylists.map((playlist) => playlist.id));
+  let changed = nextPlaylists.length !== playlists.length;
+
+  const nextVideos = videos.map((video) => {
+    const playlistId = safeText(video.playlistId, 80);
+    const hasValidPlaylist = playlistId && playlistId !== LEGACY_DEFAULT_PLAYLIST_ID && knownPlaylistIds.has(playlistId);
+
+    if (hasValidPlaylist) {
+      return video;
+    }
+
+    const autoPlaylist = ensurePlaylistForDate(nextPlaylists, video.createdAt || video.updatedAt || new Date().toISOString());
+    knownPlaylistIds.add(autoPlaylist.id);
+    changed = true;
+
+    return {
+      ...video,
+      playlistId: autoPlaylist.id,
+      updatedAt: safeText(video.updatedAt, 40) || new Date().toISOString()
+    };
+  });
+
+  return {
+    playlists: nextPlaylists,
+    videos: nextVideos,
+    changed
+  };
+}
+
+async function loadLibraryState({ persist = false } = {}) {
+  const [videos, playlists] = await Promise.all([storageService.getVideos(), storageService.getPlaylists()]);
+  const normalized = normalizeLibraryState(playlists, videos);
+
+  if (persist && normalized.changed) {
+    await storageService.saveVideos(normalized.videos);
+    await storageService.savePlaylists(normalized.playlists);
+  }
+
+  return normalized;
+}
+
 function playlistSummary(playlist, videos = []) {
-  const count = videos.filter((video) => (video.playlistId || DEFAULT_PLAYLIST_ID) === playlist.id).length;
+  const count = videos.filter((video) => video.playlistId === playlist.id).length;
   return {
     id: playlist.id,
     name: playlist.name,
@@ -238,10 +358,18 @@ function playlistSummary(playlist, videos = []) {
 }
 
 function resolvePlaylist(video, playlists) {
-  return playlists.find((playlist) => playlist.id === video.playlistId) || playlists[0] || DEFAULT_PLAYLIST;
+  return (
+    playlists.find((playlist) => playlist.id === video.playlistId) || {
+      id: safeText(video.playlistId, 80) || randomUUID(),
+      name: formatUploadPlaylistName(video.createdAt || video.updatedAt || new Date().toISOString()),
+      description: '',
+      createdAt: safeText(video.createdAt, 40) || new Date().toISOString(),
+      updatedAt: safeText(video.updatedAt, 40) || new Date().toISOString()
+    }
+  );
 }
 
-function videoSummary(video, playlists = [DEFAULT_PLAYLIST]) {
+function videoSummary(video, playlists = []) {
   const playlist = resolvePlaylist(video, playlists);
   return {
     id: video.id,
@@ -266,14 +394,12 @@ function videoSummary(video, playlists = [DEFAULT_PLAYLIST]) {
 }
 
 async function handleListVideos(res) {
-  const videos = await readCatalog();
-  const playlists = await readPlaylists();
+  const { videos, playlists } = await queueMetadataMutation(() => loadLibraryState({ persist: true }));
   jsonResponse(res, 200, { videos: videos.map((video) => videoSummary(video, playlists)) });
 }
 
 async function handleListPlaylists(res) {
-  const videos = await readCatalog();
-  const playlists = await readPlaylists();
+  const { videos, playlists } = await queueMetadataMutation(() => loadLibraryState({ persist: true }));
   jsonResponse(res, 200, { playlists: playlists.map((playlist) => playlistSummary(playlist, videos)) });
 }
 
@@ -300,12 +426,12 @@ async function handleCreatePlaylist(req, res) {
   }
 
   const result = await queueMetadataMutation(async () => {
-    const playlists = await readPlaylists();
+    const { videos, playlists } = await loadLibraryState({ persist: false });
     const existing = playlists.find((playlist) => playlist.name.toLowerCase() === name.toLowerCase());
     if (existing) {
       return {
         status: 200,
-        playlist: playlistSummary(existing, await readCatalog())
+        playlist: playlistSummary(existing, videos)
       };
     }
 
@@ -319,10 +445,10 @@ async function handleCreatePlaylist(req, res) {
     };
 
     playlists.push(playlist);
-    await writePlaylists(playlists);
+    await storageService.savePlaylists(playlists);
     return {
       status: 201,
-      playlist: playlistSummary(playlist, await readCatalog())
+      playlist: playlistSummary(playlist, videos)
     };
   });
 
@@ -337,42 +463,32 @@ async function handleDeletePlaylist(res, rawId) {
     return;
   }
 
-  if (id === DEFAULT_PLAYLIST_ID) {
-    jsonResponse(res, 400, { error: 'A playlist Geral nao pode ser removida.' });
-    return;
-  }
-
   const result = await queueMetadataMutation(async () => {
-    const playlists = await readPlaylists();
+    const { videos, playlists } = await loadLibraryState({ persist: false });
     const playlist = playlists.find((item) => item.id === id);
 
     if (!playlist) {
       return { found: false };
     }
 
-    const now = new Date().toISOString();
-    let movedCount = 0;
-    const videos = await readCatalog();
-    const nextVideos = videos.map((video) => {
-      if ((video.playlistId || DEFAULT_PLAYLIST_ID) !== id) {
-        return video;
-      }
+    const nextPlaylists = playlists.filter((item) => item.id !== id);
+    const deletedVideos = videos.filter((video) => video.playlistId === id);
+    const deletedVideoIds = new Set(deletedVideos.map((video) => video.id));
+    const nextVideos = videos.filter((video) => video.playlistId !== id);
+    const annotations = await storageService.getAnnotations();
 
-      movedCount += 1;
-      return {
-        ...video,
-        playlistId: DEFAULT_PLAYLIST_ID,
-        updatedAt: now
-      };
+    deletedVideoIds.forEach((videoId) => {
+      delete annotations[videoId];
     });
 
-    const nextPlaylists = playlists.filter((item) => item.id !== id);
-    await writeCatalog(nextVideos);
-    await writePlaylists(nextPlaylists);
+    await storageService.saveVideos(nextVideos);
+    await storageService.savePlaylists(nextPlaylists);
+    await storageService.saveAnnotations(annotations);
 
     return {
       found: true,
-      movedCount
+      deletedCount: deletedVideos.length,
+      storageNames: deletedVideos.map((video) => video.storageName).filter(Boolean)
     };
   });
 
@@ -381,7 +497,9 @@ async function handleDeletePlaylist(res, rawId) {
     return;
   }
 
-  jsonResponse(res, 200, { ok: true, movedCount: result.movedCount });
+  await Promise.all(result.storageNames.map((storageName) => fsp.rm(path.join(VIDEO_DIR, storageName), { force: true })));
+
+  jsonResponse(res, 200, { ok: true, deletedCount: result.deletedCount });
 }
 
 async function handleCreateVideo(req, res, requestUrl) {
@@ -393,7 +511,7 @@ async function handleCreateVideo(req, res, requestUrl) {
   const extension = getVideoExtension(originalName, contentType);
 
   if (!isVideoLike(contentType, extension)) {
-    jsonResponse(res, 415, { error: 'Envie um arquivo de video valido.' });
+    jsonResponse(res, 415, { error: 'Use um arquivo AVI, MOV, MP4, MPEG, MPG ou WMV.' });
     return;
   }
 
@@ -402,6 +520,7 @@ async function handleCreateVideo(req, res, requestUrl) {
   const finalPath = path.join(VIDEO_DIR, storageName);
   const tempPath = path.join(VIDEO_DIR, `${storageName}.tmp`);
   let size = 0;
+  let storedSize = 0;
 
   const limiter = new Transform({
     transform(chunk, encoding, callback) {
@@ -431,14 +550,23 @@ async function handleCreateVideo(req, res, requestUrl) {
     return;
   }
 
-  await fsp.rename(tempPath, finalPath);
+  try {
+    await removeAudioTrack(tempPath, finalPath);
+    const stat = await fsp.stat(finalPath);
+    storedSize = stat.size;
+  } catch (error) {
+    await Promise.all([fsp.rm(tempPath, { force: true }), fsp.rm(finalPath, { force: true })]);
+    throw error;
+  }
+
+  await fsp.rm(tempPath, { force: true });
 
   const result = await queueMetadataMutation(async () => {
     const now = new Date().toISOString();
     const duration = Number(params.get('duration'));
-    const playlists = await readPlaylists();
+    const { videos, playlists } = await loadLibraryState({ persist: false });
     const requestedPlaylistId = safeText(params.get('playlistId'), 80);
-    const playlist = playlists.find((item) => item.id === requestedPlaylistId) || playlists[0] || DEFAULT_PLAYLIST;
+    const playlist = playlists.find((item) => item.id === requestedPlaylistId) || ensurePlaylistForDate(playlists, now);
     const video = {
       id,
       title: safeText(params.get('title'), 160) || path.basename(originalName, extension),
@@ -454,15 +582,15 @@ async function handleCreateVideo(req, res, requestUrl) {
       storageName,
       url: `/videos/${encodeURIComponent(storageName)}`,
       contentType: contentType.split(';')[0],
-      size,
+      size: storedSize,
       duration: Number.isFinite(duration) && duration > 0 ? Math.round(duration) : null,
       createdAt: now,
       updatedAt: now
     };
 
-    const videos = await readCatalog();
     videos.unshift(video);
-    await writeCatalog(videos);
+    await storageService.saveVideos(videos);
+    await storageService.savePlaylists(playlists);
 
     return {
       status: 201,
@@ -475,7 +603,7 @@ async function handleCreateVideo(req, res, requestUrl) {
 
 async function handleDeleteVideo(res, id) {
   const result = await queueMetadataMutation(async () => {
-    const videos = await readCatalog();
+    const videos = await storageService.getVideos();
     const index = videos.findIndex((video) => video.id === id);
 
     if (index === -1) {
@@ -483,12 +611,12 @@ async function handleDeleteVideo(res, id) {
     }
 
     const [video] = videos.splice(index, 1);
-    await writeCatalog(videos);
+    await storageService.saveVideos(videos);
 
-    const annotations = await readAnnotationsStore();
+    const annotations = await storageService.getAnnotations();
     if (annotations[id]) {
       delete annotations[id];
-      await writeAnnotationsStore(annotations);
+      await storageService.saveAnnotations(annotations);
     }
 
     return {
@@ -505,6 +633,71 @@ async function handleDeleteVideo(res, id) {
   await fsp.rm(path.join(VIDEO_DIR, result.storageName), { force: true });
 
   jsonResponse(res, 200, { ok: true });
+}
+
+async function handleUpdateVideo(req, res, id) {
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch (error) {
+    if (error.message === 'JSON_BODY_LIMIT_EXCEEDED') {
+      jsonResponse(res, 413, { error: 'Dados maiores que o limite permitido.' });
+      return;
+    }
+    if (error instanceof SyntaxError) {
+      jsonResponse(res, 400, { error: 'JSON invalido.' });
+      return;
+    }
+    throw error;
+  }
+
+  const playlistId = safeText(payload.playlistId, 80);
+  if (!playlistId) {
+    jsonResponse(res, 400, { error: 'Informe a playlist de destino.' });
+    return;
+  }
+
+  const result = await queueMetadataMutation(async () => {
+    const videos = await storageService.getVideos();
+    const index = videos.findIndex((video) => video.id === id);
+
+    if (index === -1) {
+      return { found: false };
+    }
+
+    const playlists = await storageService.getPlaylists();
+    const playlist = playlists.find((item) => item.id === playlistId);
+    if (!playlist) {
+      return { found: true, playlistFound: false };
+    }
+
+    const nextVideo = {
+      ...videos[index],
+      playlistId: playlist.id,
+      updatedAt: new Date().toISOString()
+    };
+
+    videos[index] = nextVideo;
+    await storageService.saveVideos(videos);
+
+    return {
+      found: true,
+      playlistFound: true,
+      video: videoSummary(nextVideo, playlists)
+    };
+  });
+
+  if (!result.found) {
+    jsonResponse(res, 404, { error: 'Video nao encontrado.' });
+    return;
+  }
+
+  if (!result.playlistFound) {
+    jsonResponse(res, 404, { error: 'Playlist nao encontrada.' });
+    return;
+  }
+
+  jsonResponse(res, 200, { video: result.video });
 }
 
 function normalizePoint(point) {
@@ -594,7 +787,7 @@ function normalizeAnnotation(annotation) {
 }
 
 async function ensureVideoExists(id) {
-  const videos = await readCatalog();
+  const videos = await storageService.getVideos();
   return videos.some((video) => video.id === id);
 }
 
@@ -604,7 +797,7 @@ async function handleGetAnnotations(res, id) {
     return;
   }
 
-  const store = await readAnnotationsStore();
+  const store = await storageService.getAnnotations();
   jsonResponse(res, 200, { annotations: Array.isArray(store[id]) ? store[id] : [] });
 }
 
@@ -636,9 +829,9 @@ async function handlePutAnnotations(req, res, id) {
   annotations.sort((a, b) => a.time - b.time);
 
   await queueMetadataMutation(async () => {
-    const store = await readAnnotationsStore();
+    const store = await storageService.getAnnotations();
     store[id] = annotations;
-    await writeAnnotationsStore(store);
+    await storageService.saveAnnotations(store);
   });
 
   jsonResponse(res, 200, { annotations });
@@ -693,7 +886,7 @@ async function serveVideo(req, res, pathname) {
   }
 
   const stat = await fsp.stat(filePath);
-  const videos = await readCatalog();
+  const videos = await storageService.getVideos();
   const metadata = videos.find((video) => video.storageName === storageName);
   const contentType = metadata?.contentType || getMime(filePath);
   const range = parseRange(req.headers.range, stat.size);
@@ -837,6 +1030,10 @@ async function route(req, res) {
   if (videoDeleteMatch) {
     if (req.method === 'DELETE') {
       await handleDeleteVideo(res, videoDeleteMatch[1]);
+      return;
+    }
+    if (req.method === 'PATCH') {
+      await handleUpdateVideo(req, res, videoDeleteMatch[1]);
       return;
     }
     methodNotAllowed(res);

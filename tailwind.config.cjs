@@ -5,19 +5,19 @@ module.exports = {
     extend: {
       colors: {
         tactical: {
-          ink: '#08161c',
+          ink: '#002244',
           pitch: '#3f8f29',
-          pitchDark: '#2c661b',
-          bone: '#f3f1e8',
-          mist: '#dfe5d8',
-          line: '#c5ccbe',
-          ash: '#69746d',
-          ember: '#d7642e'
+          pitchDark: '#2d6d1e',
+          bone: '#f4f7f5',
+          mist: '#dbe3e2',
+          line: '#a5acaf',
+          ash: '#607487',
+          ember: '#1b5e9b'
         }
       },
       boxShadow: {
-        panel: '0 22px 60px rgba(8, 22, 28, 0.08)',
-        glow: '0 18px 40px rgba(63, 143, 41, 0.18)'
+        panel: '0 22px 60px rgba(0, 34, 68, 0.08)',
+        glow: '0 18px 40px rgba(0, 34, 68, 0.14), 0 10px 24px rgba(63, 143, 41, 0.12)'
       },
       borderRadius: {
         xl2: '1.25rem'

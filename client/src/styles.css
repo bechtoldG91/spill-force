@@ -4,8 +4,8 @@
 
 @layer base {
   html {
-    color: #08161c;
-    background: #f3f1e8;
+    color: #002244;
+    background: #f4f7f5;
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
 
@@ -15,7 +15,8 @@
     min-height: 100vh;
     background:
       radial-gradient(circle at top left, rgba(63, 143, 41, 0.08), transparent 28%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(243, 241, 232, 0.88));
+      radial-gradient(circle at top right, rgba(0, 34, 68, 0.08), transparent 24%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(244, 247, 245, 0.94));
   }
 
   * {
@@ -37,34 +38,34 @@
 @layer components {
   .field-grid {
     background-image:
-      linear-gradient(rgba(8, 22, 28, 0.04) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(8, 22, 28, 0.04) 1px, transparent 1px);
+      linear-gradient(rgba(0, 34, 68, 0.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 34, 68, 0.045) 1px, transparent 1px);
     background-position: center;
     background-size: 42px 42px;
   }
 
   .tactical-panel {
-    @apply rounded-2xl border border-tactical-ink/10 bg-white shadow-panel;
+    @apply rounded-2xl border border-tactical-line/35 bg-white shadow-panel;
   }
 
   .tactical-dark-panel {
-    @apply rounded-2xl border border-tactical-pitch/20 bg-tactical-ink text-white shadow-glow;
+    @apply rounded-2xl border border-tactical-pitch/25 bg-tactical-ink text-white shadow-glow;
   }
 
   .tactical-button {
-    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-tactical-ink/10 bg-tactical-ink px-4 text-sm font-black uppercase tracking-[0.18em] text-white transition hover:bg-tactical-pitch;
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-tactical-ink/10 bg-tactical-ink px-4 text-sm font-black uppercase tracking-[0.18em] text-white transition hover:border-tactical-pitch hover:bg-tactical-pitch;
   }
 
   .tactical-button-secondary {
-    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-tactical-pitch/25 bg-tactical-pitch/10 px-4 text-sm font-black uppercase tracking-[0.18em] text-tactical-ink transition hover:bg-tactical-pitch hover:text-white;
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-tactical-pitch/25 bg-tactical-pitch/10 px-4 text-sm font-black uppercase tracking-[0.18em] text-tactical-ink transition hover:border-tactical-ink hover:bg-tactical-ink hover:text-white;
   }
 
   .tactical-input {
-    @apply h-11 w-full rounded-xl border border-tactical-ink/15 bg-white px-4 text-sm text-tactical-ink outline-none transition placeholder:text-tactical-ash/70 focus:border-tactical-pitch focus:ring-2 focus:ring-tactical-pitch/20;
+    @apply h-11 w-full rounded-xl border border-tactical-line/45 bg-white px-4 text-sm text-tactical-ink outline-none transition placeholder:text-tactical-ash/75 focus:border-tactical-pitch focus:ring-2 focus:ring-tactical-pitch/20;
   }
 
   .tactical-textarea {
-    @apply min-h-28 w-full rounded-xl border border-tactical-ink/15 bg-white px-4 py-3 text-sm text-tactical-ink outline-none transition placeholder:text-tactical-ash/70 focus:border-tactical-pitch focus:ring-2 focus:ring-tactical-pitch/20;
+    @apply min-h-28 w-full rounded-xl border border-tactical-line/45 bg-white px-4 py-3 text-sm text-tactical-ink outline-none transition placeholder:text-tactical-ash/75 focus:border-tactical-pitch focus:ring-2 focus:ring-tactical-pitch/20;
   }
 
   .tactical-label {
@@ -77,7 +78,7 @@
     width: 100%;
     height: 8px;
     border-radius: 999px;
-    background: rgba(8, 22, 28, 0.12);
+    background: rgba(0, 34, 68, 0.12);
     outline: none;
   }
 
@@ -86,7 +87,7 @@
     appearance: none;
     width: 18px;
     height: 18px;
-    border: 2px solid #08161c;
+    border: 2px solid #002244;
     border-radius: 999px;
     background: #3f8f29;
     box-shadow: 0 0 0 4px rgba(63, 143, 41, 0.22);
@@ -95,10 +96,54 @@
   .timeline-slider::-moz-range-thumb {
     width: 18px;
     height: 18px;
-    border: 2px solid #08161c;
+    border: 2px solid #002244;
     border-radius: 999px;
     background: #3f8f29;
     box-shadow: 0 0 0 4px rgba(63, 143, 41, 0.22);
+  }
+
+  .timeline-slider-bright {
+    height: 6px;
+    background: rgba(255, 255, 255, 0.8);
+  }
+
+  .timeline-slider-bright::-webkit-slider-thumb {
+    width: 16px;
+    height: 16px;
+    border-color: #ffffff;
+    background: #3f8f29;
+    box-shadow: 0 0 0 3px rgba(63, 143, 41, 0.35);
+  }
+
+  .timeline-slider-bright::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-color: #ffffff;
+    background: #3f8f29;
+    box-shadow: 0 0 0 3px rgba(63, 143, 41, 0.35);
+  }
+
+  .timeline-slider-progress {
+    height: 10px;
+    background: rgba(255, 255, 255, 0.82);
+  }
+
+  .timeline-slider-progress::-webkit-slider-thumb {
+    width: 2px;
+    height: 10px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .timeline-slider-progress::-moz-range-thumb {
+    width: 2px;
+    height: 10px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
   }
 }
 
@@ -112,11 +157,11 @@
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(8, 22, 28, 0.06);
+  background: rgba(0, 34, 68, 0.06);
 }
 
 ::-webkit-scrollbar-thumb {
   border-radius: 999px;
-  border: 2px solid rgba(243, 241, 232, 0.9);
+  border: 2px solid rgba(244, 247, 245, 0.92);
   background: rgba(63, 143, 41, 0.55);
 }
