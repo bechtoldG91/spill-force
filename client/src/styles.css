@@ -79,6 +79,7 @@
     height: 8px;
     border-radius: 999px;
     background: rgba(0, 34, 68, 0.12);
+    cursor: pointer;
     outline: none;
   }
 
@@ -90,6 +91,7 @@
     border: 2px solid #002244;
     border-radius: 999px;
     background: #3f8f29;
+    cursor: pointer;
     box-shadow: 0 0 0 4px rgba(63, 143, 41, 0.22);
   }
 
@@ -99,6 +101,7 @@
     border: 2px solid #002244;
     border-radius: 999px;
     background: #3f8f29;
+    cursor: pointer;
     box-shadow: 0 0 0 4px rgba(63, 143, 41, 0.22);
   }
 
@@ -124,26 +127,29 @@
   }
 
   .timeline-slider-progress {
-    height: 10px;
-    background: rgba(255, 255, 255, 0.82);
+    height: 18px;
+    border-radius: 0;
+    background: #2f3a45;
   }
 
   .timeline-slider-progress::-webkit-slider-thumb {
-    width: 2px;
-    height: 10px;
+    width: 6px;
+    height: 24px;
     border: 0;
     border-radius: 0;
-    background: transparent;
-    box-shadow: none;
+    background: #ffffff;
+    cursor: pointer;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
   }
 
   .timeline-slider-progress::-moz-range-thumb {
-    width: 2px;
-    height: 10px;
+    width: 6px;
+    height: 24px;
     border: 0;
     border-radius: 0;
-    background: transparent;
-    box-shadow: none;
+    background: #ffffff;
+    cursor: pointer;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
   }
 }
 

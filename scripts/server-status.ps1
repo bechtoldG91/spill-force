@@ -1,7 +1,20 @@
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
-$runtimeDir = Join-Path $root 'storage\.runtime'
+
+function Get-RuntimeConfig {
+  Push-Location $root
+  try {
+    $json = node .\scripts\print-runtime-config.js
+    return $json | ConvertFrom-Json
+  } finally {
+    Pop-Location
+  }
+}
+
+$runtimeConfig = Get-RuntimeConfig
+$runtimeDir = $runtimeConfig.logDir
+$port = [int]$runtimeConfig.port
 $supervisorPidFile = Join-Path $runtimeDir 'supervisor.pid'
 $serverPidFile = Join-Path $runtimeDir 'server.pid'
 
@@ -42,11 +55,11 @@ function Get-ProcessLabel {
 
 $supervisorPid = Read-PidFile -Path $supervisorPidFile
 $serverPid = Read-PidFile -Path $serverPidFile
-$portStatus = Test-NetConnection -ComputerName localhost -Port 3000 -WarningAction SilentlyContinue
+$portStatus = Test-NetConnection -ComputerName localhost -Port $port -WarningAction SilentlyContinue
 
 Write-Output "Supervisor: $(Get-ProcessLabel -PidValue $supervisorPid)"
 Write-Output "Server: $(Get-ProcessLabel -PidValue $serverPid)"
-Write-Output "Porta 3000: $(if ($portStatus.TcpTestSucceeded) { 'aberta' } else { 'fechada' })"
+Write-Output "Porta ${port}: $(if ($portStatus.TcpTestSucceeded) { 'aberta' } else { 'fechada' })"
 
 if (Test-Path (Join-Path $runtimeDir 'supervisor.log')) {
   Write-Output "Logs: $runtimeDir"

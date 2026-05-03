@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Icon } from '../components/Icons';
+import { authFetch, getAuthToken } from '../lib/auth';
 import { cn, formatBytes, formatDuration, kindLabel } from '../lib/utils';
 
 const VIDEO_EXTENSIONS = ['.avi', '.mov', '.mp4', '.mpeg', '.mpg', '.wmv'];
@@ -66,6 +68,10 @@ function uploadFile(url, file, onProgress) {
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
     request.open('POST', url);
+    const token = getAuthToken();
+    if (token) {
+      request.setRequestHeader('Authorization', `Bearer ${token}`);
+    }
 
     request.upload.onprogress = (event) => {
       if (event.lengthComputable) {
@@ -95,6 +101,7 @@ function uploadFile(url, file, onProgress) {
 }
 
 export function UploadPage({ showToast }) {
+  const navigate = useNavigate();
   const inputRef = useRef(null);
   const [playlists, setPlaylists] = useState([]);
   const [selectedFiles, setSelectedFiles] = useState([]);
@@ -131,7 +138,7 @@ export function UploadPage({ showToast }) {
     let ignore = false;
 
     async function loadPlaylists() {
-      const response = await fetch('/api/playlists');
+      const response = await authFetch('/api/playlists');
       if (!response.ok) {
         throw new Error('Nao foi possivel carregar as playlists.');
       }
@@ -242,7 +249,7 @@ export function UploadPage({ showToast }) {
     setIsCreatingPlaylist(true);
 
     try {
-      const response = await fetch('/api/playlists', {
+      const response = await authFetch('/api/playlists', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -343,7 +350,10 @@ export function UploadPage({ showToast }) {
     });
 
     const results = await Promise.allSettled(uploadTargets);
-    const successCount = results.filter((result) => result.status === 'fulfilled').length;
+    const successfulUploads = results.filter((result) => result.status === 'fulfilled');
+    const successCount = successfulUploads.length;
+    const uploadedPlaylistId =
+      successfulUploads.find((result) => result.value.payload?.video?.playlistId)?.value.payload.video.playlistId || form.playlistId;
     const failedItems = [];
 
     results.forEach((result) => {
@@ -374,7 +384,7 @@ export function UploadPage({ showToast }) {
 
     if (successCount) {
       try {
-        const response = await fetch('/api/playlists');
+        const response = await authFetch('/api/playlists');
         if (response.ok) {
           const payload = await response.json();
           setPlaylists(payload.playlists || []);
@@ -417,6 +427,7 @@ export function UploadPage({ showToast }) {
     }
 
     showToast(`${successCount} ${successCount === 1 ? 'video publicado' : 'videos publicados'} com sucesso.`);
+    navigate(uploadedPlaylistId ? `/biblioteca?playlist=${encodeURIComponent(uploadedPlaylistId)}` : '/biblioteca');
   }
 
   return (
@@ -458,7 +469,7 @@ export function UploadPage({ showToast }) {
             >
               <div>
                 <div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-tactical-pitch text-white shadow-glow">
-                  <Icon name="upload" className="h-7 w-7" />
+                  <span className="material-symbols-outlined text-[2rem] leading-none">upload_file</span>
                 </div>
                 <strong className="mt-4 block text-lg font-black uppercase tracking-[0.14em] text-white">
                   Soltar videos aqui
@@ -474,10 +485,11 @@ export function UploadPage({ showToast }) {
             <div className="overflow-hidden rounded-[1.9rem] p-4 sm:p-5" style={{ backgroundColor: '#A5acaf' }}>
               <div className="flex min-h-[220px] flex-col justify-between rounded-[1.65rem] border border-white/30 bg-white/18 p-5 sm:p-6 md:min-h-[260px]">
                 <div className="text-center">
+                  <div className="mb-3 text-tactical-ink">
+                    <span className="material-symbols-outlined text-[2.25rem] leading-none">playlist_add</span>
+                  </div>
                   <h2 className="text-[1.9rem] font-black uppercase leading-[0.95] tracking-[0.12em] text-tactical-ink">
-                    Criar nova
-                    <br />
-                    playlist
+                    Criar playlist
                   </h2>
                 </div>
 
@@ -488,7 +500,7 @@ export function UploadPage({ showToast }) {
                       maxLength={120}
                       value={newPlaylistName}
                       onChange={(event) => setNewPlaylistName(event.target.value)}
-                      placeholder="Ex: treino de quarta-feira ou periodo de skelly"
+                      placeholder="Ex: treino de quarta-feira"
                     />
                   </label>
 
@@ -582,11 +594,11 @@ export function UploadPage({ showToast }) {
                       <div>
                         <span className="text-[0.68rem] font-black uppercase tracking-[0.28em] text-tactical-ash">Playlist rapida</span>
                         <h3 className="mt-2 text-[1.35rem] font-black uppercase leading-[0.95] tracking-[0.12em] text-tactical-ink sm:text-[1.55rem]">
-                          Criar nova playlist
+                          Criar playlist
                         </h3>
                       </div>
                       <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-tactical-ink/8 text-tactical-ink">
-                        <Icon name="folder-plus" className="h-5 w-5" />
+                        <span className="material-symbols-outlined text-[1.7rem] leading-none">playlist_add</span>
                       </div>
                     </div>
 
@@ -597,7 +609,7 @@ export function UploadPage({ showToast }) {
                           maxLength={120}
                           value={newPlaylistName}
                           onChange={(event) => setNewPlaylistName(event.target.value)}
-                          placeholder="Ex: treino de quarta-feira ou periodo de skelly"
+                          placeholder="Ex: treino de quarta-feira"
                         />
                       </label>
 
@@ -660,7 +672,7 @@ export function UploadPage({ showToast }) {
                   className="tactical-button min-h-[52px] min-w-[336px] text-base"
                   disabled={isUploading || !selectedFiles.length}
                 >
-                  <Icon name="upload" className="h-5 w-5" />
+                  <span className="material-symbols-outlined text-[1.35rem] leading-none">upload_file</span>
                   {isUploading ? 'Enviando...' : 'Upload'}
                 </button>
               </div>

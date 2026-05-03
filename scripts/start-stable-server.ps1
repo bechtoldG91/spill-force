@@ -1,7 +1,20 @@
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
-$runtimeDir = Join-Path $root 'storage\.runtime'
+
+function Get-RuntimeConfig {
+  Push-Location $root
+  try {
+    $json = node .\scripts\print-runtime-config.js
+    return $json | ConvertFrom-Json
+  } finally {
+    Pop-Location
+  }
+}
+
+$runtimeConfig = Get-RuntimeConfig
+$runtimeDir = $runtimeConfig.logDir
+$port = [int]$runtimeConfig.port
 $supervisorPidFile = Join-Path $runtimeDir 'supervisor.pid'
 $serverPidFile = Join-Path $runtimeDir 'server.pid'
 $supervisorScript = Join-Path $root 'scripts\server-supervisor.js'
@@ -47,12 +60,12 @@ if ($existingSupervisorPid) {
   Remove-StalePid -Path $supervisorPidFile
 }
 
-$activeOn3000 = Get-NetTCPConnection -State Listen -LocalPort 3000 -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($activeOn3000) {
-  $ownerPid = [int]$activeOn3000.OwningProcess
+$activeOnPort = Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($activeOnPort) {
+  $ownerPid = [int]$activeOnPort.OwningProcess
   $ownerProcess = Get-Process -Id $ownerPid -ErrorAction SilentlyContinue
   $ownerName = if ($ownerProcess) { $ownerProcess.ProcessName } else { 'desconhecido' }
-  Write-Error "A porta 3000 ja esta ocupada pelo processo $ownerName (PID $ownerPid). Pare esse processo antes de iniciar o modo estavel."
+  Write-Error "A porta $port ja esta ocupada pelo processo $ownerName (PID $ownerPid). Pare esse processo antes de iniciar o modo estavel."
 }
 
 $process = Start-Process -FilePath node -ArgumentList $supervisorScript -WorkingDirectory $root -WindowStyle Hidden -PassThru
@@ -72,4 +85,4 @@ if ($serverPid) {
   Write-Output "Server PID: $serverPid"
 }
 
-Write-Output 'Abra: http://localhost:3000'
+Write-Output "Abra: http://localhost:$port"

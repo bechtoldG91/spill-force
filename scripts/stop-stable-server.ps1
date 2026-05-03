@@ -1,7 +1,17 @@
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
-$runtimeDir = Join-Path $root 'storage\.runtime'
+
+function Get-RuntimeDir {
+  Push-Location $root
+  try {
+    node .\scripts\print-runtime-config.js logDir
+  } finally {
+    Pop-Location
+  }
+}
+
+$runtimeDir = Get-RuntimeDir
 $supervisorPidFile = Join-Path $runtimeDir 'supervisor.pid'
 $serverPidFile = Join-Path $runtimeDir 'server.pid'
 

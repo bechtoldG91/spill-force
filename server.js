@@ -1,998 +1,141 @@
+const { config, validateConfig } = require('./config');
+
+validateConfig();
+
 const http = require('node:http');
-const fs = require('node:fs');
-const fsp = require('node:fs/promises');
-const path = require('node:path');
-const { randomUUID } = require('node:crypto');
-const { Transform } = require('node:stream');
-const { pipeline } = require('node:stream/promises');
-const { spawn } = require('node:child_process');
-const ffmpegPath = require('ffmpeg-static');
-
-const PORT = Number(process.env.PORT || 3000);
-const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 1024);
-const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
-
-const ROOT_DIR = __dirname;
-const PUBLIC_DIR = path.join(ROOT_DIR, 'public');
-const STORAGE_DIR = path.join(ROOT_DIR, 'storage');
-const VIDEO_DIR = path.join(STORAGE_DIR, 'videos');
-const DATA_FILE = path.join(STORAGE_DIR, 'videos.json');
-const ANNOTATIONS_FILE = path.join(STORAGE_DIR, 'annotations.json');
-const PLAYLISTS_FILE = path.join(STORAGE_DIR, 'playlists.json');
-const MAX_JSON_BODY_BYTES = 5 * 1024 * 1024;
-const LEGACY_DEFAULT_PLAYLIST_ID = 'geral';
-const PLAYLIST_DATE_FORMATTER = new Intl.DateTimeFormat('pt-BR', {
-  timeZone: 'America/Sao_Paulo',
-  day: '2-digit',
-  month: '2-digit',
-  year: 'numeric'
-});
-
-const STATIC_MIME = {
-  '.html': 'text/html; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
-  '.ico': 'image/x-icon'
-};
-
-const VIDEO_MIME = {
-  '.avi': 'video/x-msvideo',
-  '.mov': 'video/quicktime',
-  '.mp4': 'video/mp4',
-  '.mpeg': 'video/mpeg',
-  '.mpg': 'video/mpeg',
-  '.wmv': 'video/x-ms-wmv'
-};
-
-let metadataWriteQueue = Promise.resolve();
-
-function queueMetadataMutation(task) {
-  const next = metadataWriteQueue.then(task, task);
-  metadataWriteQueue = next.catch(() => {});
-  return next;
-}
-
-async function ensureStorage() {
-  await fsp.mkdir(VIDEO_DIR, { recursive: true });
-}
-
-function jsonResponse(res, status, payload) {
-  const body = JSON.stringify(payload);
-  res.writeHead(status, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': Buffer.byteLength(body)
-  });
-  res.end(body);
-}
-
-function methodNotAllowed(res) {
-  jsonResponse(res, 405, { error: 'Metodo nao permitido.' });
-}
-
-function safeText(value, maxLength = 160) {
-  return String(value || '')
-    .replace(/[\u0000-\u001f\u007f]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, maxLength);
-}
-
-function safeBaseName(fileName) {
-  const fallback = 'video.mp4';
-  const base = path.basename(String(fileName || fallback));
-  const cleaned = base.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').replace(/\s+/g, ' ').trim();
-  return cleaned || fallback;
-}
-
-function isInside(base, target) {
-  const relative = path.relative(base, target);
-  return relative === '' || (relative && !relative.startsWith('..') && !path.isAbsolute(relative));
-}
-
-function getMime(filePath) {
-  const ext = path.extname(filePath).toLowerCase();
-  return STATIC_MIME[ext] || VIDEO_MIME[ext] || 'application/octet-stream';
-}
-
-function getVideoExtension(originalName, contentType) {
-  const ext = path.extname(originalName).toLowerCase();
-  if (VIDEO_MIME[ext]) {
-    return ext;
-  }
-
-  const normalized = String(contentType || '').split(';')[0].toLowerCase();
-  const match = Object.entries(VIDEO_MIME).find(([, mime]) => mime === normalized);
-  return match ? match[0] : '';
-}
-
-function isVideoLike(contentType, extension) {
-  const normalized = String(contentType || '').split(';')[0].toLowerCase();
-  return Boolean(VIDEO_MIME[extension]) && (!normalized || normalized.startsWith('video/'));
-}
-
-function removeAudioTrack(inputPath, outputPath) {
-  return new Promise((resolve, reject) => {
-    if (!ffmpegPath) {
-      reject(new Error('FFMPEG_NOT_AVAILABLE'));
-      return;
-    }
-
-    const process = spawn(
-      ffmpegPath,
-      ['-y', '-i', inputPath, '-map', '0:v:0', '-an', '-c:v', 'copy', outputPath],
-      {
-        windowsHide: true,
-        stdio: ['ignore', 'ignore', 'pipe']
-      }
-    );
-
-    let stderr = '';
-    process.stderr.on('data', (chunk) => {
-      stderr += chunk.toString();
-      if (stderr.length > 4000) {
-        stderr = stderr.slice(-4000);
-      }
-    });
-
-    process.once('error', reject);
-    process.once('exit', (code) => {
-      if (code === 0) {
-        resolve();
-        return;
-      }
-
-      reject(new Error(`FFMPEG_AUDIO_STRIP_FAILED: ${stderr || `exit ${code}`}`));
-    });
-  });
-}
-
-async function readCatalog() {
-  await ensureStorage();
-
-  try {
-    const raw = await fsp.readFile(DATA_FILE, 'utf8');
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (error) {
-    if (error.code === 'ENOENT') {
-      return [];
-    }
-    throw error;
-  }
-}
-
-async function writeCatalog(videos) {
-  await ensureStorage();
-  const tempFile = `${DATA_FILE}.tmp`;
-  await fsp.writeFile(tempFile, `${JSON.stringify(videos, null, 2)}\n`, 'utf8');
-  await fsp.rename(tempFile, DATA_FILE);
-}
-
-async function readAnnotationsStore() {
-  await ensureStorage();
-
-  try {
-    const raw = await fsp.readFile(ANNOTATIONS_FILE, 'utf8');
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-  } catch (error) {
-    if (error.code === 'ENOENT') {
-      return {};
-    }
-    throw error;
-  }
-}
-
-async function readPlaylists() {
-  await ensureStorage();
-
-  try {
-    const raw = await fsp.readFile(PLAYLISTS_FILE, 'utf8');
-    const parsed = JSON.parse(raw);
-    return sanitizePlaylists(Array.isArray(parsed) ? parsed : []);
-  } catch (error) {
-    if (error.code === 'ENOENT') {
-      return [];
-    }
-    throw error;
-  }
-}
-
-async function writePlaylists(playlists) {
-  await ensureStorage();
-  const tempFile = `${PLAYLISTS_FILE}.tmp`;
-  await fsp.writeFile(tempFile, `${JSON.stringify(sanitizePlaylists(playlists), null, 2)}\n`, 'utf8');
-  await fsp.rename(tempFile, PLAYLISTS_FILE);
-}
-
-async function writeAnnotationsStore(store) {
-  await ensureStorage();
-  const tempFile = `${ANNOTATIONS_FILE}.tmp`;
-  await fsp.writeFile(tempFile, `${JSON.stringify(store, null, 2)}\n`, 'utf8');
-  await fsp.rename(tempFile, ANNOTATIONS_FILE);
-}
-
-const storageService = {
-  getVideos: readCatalog,
-  saveVideos: writeCatalog,
-  getPlaylists: readPlaylists,
-  savePlaylists: writePlaylists,
-  getAnnotations: readAnnotationsStore,
-  saveAnnotations: writeAnnotationsStore
-};
-
-async function readJsonBody(req) {
-  const chunks = [];
-  let size = 0;
-
-  for await (const chunk of req) {
-    size += chunk.length;
-    if (size > MAX_JSON_BODY_BYTES) {
-      throw new Error('JSON_BODY_LIMIT_EXCEEDED');
-    }
-    chunks.push(chunk);
-  }
-
-  if (size === 0) {
-    return {};
-  }
-
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
-}
-
-function parseTags(raw) {
-  return safeText(raw, 240)
-    .split(',')
-    .map((tag) => tag.trim())
-    .filter(Boolean)
-    .slice(0, 12);
-}
-
-function formatUploadPlaylistName(dateInput) {
-  const date = new Date(dateInput || Date.now());
-  return PLAYLIST_DATE_FORMATTER.format(Number.isNaN(date.getTime()) ? new Date() : date);
-}
-
-function sanitizePlaylists(playlists) {
-  return playlists
-    .filter((playlist) => playlist && typeof playlist === 'object')
-    .map((playlist) => ({
-      id: safeText(playlist.id, 80) || randomUUID(),
-      name: safeText(playlist.name, 120) || 'Playlist',
-      description: safeText(playlist.description, 260),
-      createdAt: safeText(playlist.createdAt, 40) || new Date().toISOString(),
-      updatedAt: safeText(playlist.updatedAt, 40) || new Date().toISOString()
-    }))
-    .filter((playlist) => playlist.id !== LEGACY_DEFAULT_PLAYLIST_ID && playlist.name.toLowerCase() !== 'geral');
-}
-
-function findPlaylistByName(playlists, name) {
-  const normalizedName = safeText(name, 120).toLowerCase();
-  if (!normalizedName) {
-    return null;
-  }
-
-  return playlists.find((playlist) => playlist.name.toLowerCase() === normalizedName) || null;
-}
-
-function ensurePlaylistForDate(playlists, dateInput) {
-  const name = formatUploadPlaylistName(dateInput);
-  const existing = findPlaylistByName(playlists, name);
-
-  if (existing) {
-    return existing;
-  }
-
-  const now = new Date().toISOString();
-  const playlist = {
-    id: randomUUID(),
-    name,
-    description: '',
-    createdAt: now,
-    updatedAt: now
-  };
-
-  playlists.push(playlist);
-  return playlist;
-}
-
-function normalizeLibraryState(playlists, videos) {
-  const nextPlaylists = sanitizePlaylists(playlists);
-  const knownPlaylistIds = new Set(nextPlaylists.map((playlist) => playlist.id));
-  let changed = nextPlaylists.length !== playlists.length;
-
-  const nextVideos = videos.map((video) => {
-    const playlistId = safeText(video.playlistId, 80);
-    const hasValidPlaylist = playlistId && playlistId !== LEGACY_DEFAULT_PLAYLIST_ID && knownPlaylistIds.has(playlistId);
-
-    if (hasValidPlaylist) {
-      return video;
-    }
-
-    const autoPlaylist = ensurePlaylistForDate(nextPlaylists, video.createdAt || video.updatedAt || new Date().toISOString());
-    knownPlaylistIds.add(autoPlaylist.id);
-    changed = true;
-
-    return {
-      ...video,
-      playlistId: autoPlaylist.id,
-      updatedAt: safeText(video.updatedAt, 40) || new Date().toISOString()
-    };
-  });
-
-  return {
-    playlists: nextPlaylists,
-    videos: nextVideos,
-    changed
-  };
-}
-
-async function loadLibraryState({ persist = false } = {}) {
-  const [videos, playlists] = await Promise.all([storageService.getVideos(), storageService.getPlaylists()]);
-  const normalized = normalizeLibraryState(playlists, videos);
-
-  if (persist && normalized.changed) {
-    await storageService.saveVideos(normalized.videos);
-    await storageService.savePlaylists(normalized.playlists);
-  }
-
-  return normalized;
-}
-
-function playlistSummary(playlist, videos = []) {
-  const count = videos.filter((video) => video.playlistId === playlist.id).length;
-  return {
-    id: playlist.id,
-    name: playlist.name,
-    description: playlist.description,
-    count,
-    createdAt: playlist.createdAt,
-    updatedAt: playlist.updatedAt
-  };
-}
-
-function resolvePlaylist(video, playlists) {
-  return (
-    playlists.find((playlist) => playlist.id === video.playlistId) || {
-      id: safeText(video.playlistId, 80) || randomUUID(),
-      name: formatUploadPlaylistName(video.createdAt || video.updatedAt || new Date().toISOString()),
-      description: '',
-      createdAt: safeText(video.createdAt, 40) || new Date().toISOString(),
-      updatedAt: safeText(video.updatedAt, 40) || new Date().toISOString()
-    }
-  );
-}
-
-function videoSummary(video, playlists = []) {
-  const playlist = resolvePlaylist(video, playlists);
-  return {
-    id: video.id,
-    title: video.title,
-    team: video.team,
-    athlete: video.athlete,
-    kind: video.kind,
-    uploader: video.uploader,
-    tags: video.tags,
-    notes: video.notes,
-    visibility: video.visibility,
-    playlistId: playlist.id,
-    playlistName: playlist.name,
-    originalName: video.originalName,
-    url: video.url,
-    contentType: video.contentType,
-    size: video.size,
-    duration: video.duration,
-    createdAt: video.createdAt,
-    updatedAt: video.updatedAt
-  };
-}
-
-async function handleListVideos(res) {
-  const { videos, playlists } = await queueMetadataMutation(() => loadLibraryState({ persist: true }));
-  jsonResponse(res, 200, { videos: videos.map((video) => videoSummary(video, playlists)) });
-}
-
-async function handleListPlaylists(res) {
-  const { videos, playlists } = await queueMetadataMutation(() => loadLibraryState({ persist: true }));
-  jsonResponse(res, 200, { playlists: playlists.map((playlist) => playlistSummary(playlist, videos)) });
-}
-
-async function handleCreatePlaylist(req, res) {
-  let payload;
-  try {
-    payload = await readJsonBody(req);
-  } catch (error) {
-    if (error.message === 'JSON_BODY_LIMIT_EXCEEDED') {
-      jsonResponse(res, 413, { error: 'Playlist maior que o limite permitido.' });
-      return;
-    }
-    if (error instanceof SyntaxError) {
-      jsonResponse(res, 400, { error: 'JSON invalido.' });
-      return;
-    }
-    throw error;
-  }
-
-  const name = safeText(payload.name, 120);
-  if (!name) {
-    jsonResponse(res, 400, { error: 'Informe o nome da playlist.' });
-    return;
-  }
-
-  const result = await queueMetadataMutation(async () => {
-    const { videos, playlists } = await loadLibraryState({ persist: false });
-    const existing = playlists.find((playlist) => playlist.name.toLowerCase() === name.toLowerCase());
-    if (existing) {
-      return {
-        status: 200,
-        playlist: playlistSummary(existing, videos)
-      };
-    }
-
-    const now = new Date().toISOString();
-    const playlist = {
-      id: randomUUID(),
-      name,
-      description: safeText(payload.description, 260),
-      createdAt: now,
-      updatedAt: now
-    };
-
-    playlists.push(playlist);
-    await storageService.savePlaylists(playlists);
-    return {
-      status: 201,
-      playlist: playlistSummary(playlist, videos)
-    };
-  });
-
-  jsonResponse(res, result.status, { playlist: result.playlist });
-}
-
-async function handleDeletePlaylist(res, rawId) {
-  const id = safeText(decodeURIComponent(rawId), 80);
-
-  if (!id) {
-    jsonResponse(res, 404, { error: 'Playlist nao encontrada.' });
-    return;
-  }
-
-  const result = await queueMetadataMutation(async () => {
-    const { videos, playlists } = await loadLibraryState({ persist: false });
-    const playlist = playlists.find((item) => item.id === id);
-
-    if (!playlist) {
-      return { found: false };
-    }
-
-    const nextPlaylists = playlists.filter((item) => item.id !== id);
-    const deletedVideos = videos.filter((video) => video.playlistId === id);
-    const deletedVideoIds = new Set(deletedVideos.map((video) => video.id));
-    const nextVideos = videos.filter((video) => video.playlistId !== id);
-    const annotations = await storageService.getAnnotations();
-
-    deletedVideoIds.forEach((videoId) => {
-      delete annotations[videoId];
-    });
-
-    await storageService.saveVideos(nextVideos);
-    await storageService.savePlaylists(nextPlaylists);
-    await storageService.saveAnnotations(annotations);
-
-    return {
-      found: true,
-      deletedCount: deletedVideos.length,
-      storageNames: deletedVideos.map((video) => video.storageName).filter(Boolean)
-    };
-  });
-
-  if (!result.found) {
-    jsonResponse(res, 404, { error: 'Playlist nao encontrada.' });
-    return;
-  }
-
-  await Promise.all(result.storageNames.map((storageName) => fsp.rm(path.join(VIDEO_DIR, storageName), { force: true })));
-
-  jsonResponse(res, 200, { ok: true, deletedCount: result.deletedCount });
-}
-
-async function handleCreateVideo(req, res, requestUrl) {
-  await ensureStorage();
-
-  const params = requestUrl.searchParams;
-  const originalName = safeBaseName(params.get('fileName'));
-  const contentType = safeText(req.headers['content-type'] || 'application/octet-stream', 120);
-  const extension = getVideoExtension(originalName, contentType);
-
-  if (!isVideoLike(contentType, extension)) {
-    jsonResponse(res, 415, { error: 'Use um arquivo AVI, MOV, MP4, MPEG, MPG ou WMV.' });
-    return;
-  }
-
-  const id = randomUUID();
-  const storageName = `${id}${extension}`;
-  const finalPath = path.join(VIDEO_DIR, storageName);
-  const tempPath = path.join(VIDEO_DIR, `${storageName}.tmp`);
-  let size = 0;
-  let storedSize = 0;
-
-  const limiter = new Transform({
-    transform(chunk, encoding, callback) {
-      size += chunk.length;
-      if (size > MAX_UPLOAD_BYTES) {
-        callback(new Error('UPLOAD_LIMIT_EXCEEDED'));
-        return;
-      }
-      callback(null, chunk);
-    }
-  });
-
-  try {
-    await pipeline(req, limiter, fs.createWriteStream(tempPath, { flags: 'wx' }));
-  } catch (error) {
-    await fsp.rm(tempPath, { force: true });
-    if (error.message === 'UPLOAD_LIMIT_EXCEEDED') {
-      jsonResponse(res, 413, { error: `Video maior que o limite de ${MAX_UPLOAD_MB} MB.` });
-      return;
-    }
-    throw error;
-  }
-
-  if (size === 0) {
-    await fsp.rm(tempPath, { force: true });
-    jsonResponse(res, 400, { error: 'O arquivo enviado esta vazio.' });
-    return;
-  }
-
-  try {
-    await removeAudioTrack(tempPath, finalPath);
-    const stat = await fsp.stat(finalPath);
-    storedSize = stat.size;
-  } catch (error) {
-    await Promise.all([fsp.rm(tempPath, { force: true }), fsp.rm(finalPath, { force: true })]);
-    throw error;
-  }
-
-  await fsp.rm(tempPath, { force: true });
-
-  const result = await queueMetadataMutation(async () => {
-    const now = new Date().toISOString();
-    const duration = Number(params.get('duration'));
-    const { videos, playlists } = await loadLibraryState({ persist: false });
-    const requestedPlaylistId = safeText(params.get('playlistId'), 80);
-    const playlist = playlists.find((item) => item.id === requestedPlaylistId) || ensurePlaylistForDate(playlists, now);
-    const video = {
-      id,
-      title: safeText(params.get('title'), 160) || path.basename(originalName, extension),
-      team: safeText(params.get('team'), 120) || 'Sem equipe',
-      athlete: safeText(params.get('athlete'), 120),
-      kind: safeText(params.get('kind'), 40) || 'jogo',
-      uploader: safeText(params.get('uploader'), 120) || 'Equipe tecnica',
-      tags: parseTags(params.get('tags')),
-      notes: safeText(params.get('notes'), 500),
-      visibility: safeText(params.get('visibility'), 40) || 'equipe',
-      playlistId: playlist.id,
-      originalName,
-      storageName,
-      url: `/videos/${encodeURIComponent(storageName)}`,
-      contentType: contentType.split(';')[0],
-      size: storedSize,
-      duration: Number.isFinite(duration) && duration > 0 ? Math.round(duration) : null,
-      createdAt: now,
-      updatedAt: now
-    };
-
-    videos.unshift(video);
-    await storageService.saveVideos(videos);
-    await storageService.savePlaylists(playlists);
-
-    return {
-      status: 201,
-      video: videoSummary(video, playlists)
-    };
-  });
-
-  jsonResponse(res, result.status, { video: result.video });
-}
-
-async function handleDeleteVideo(res, id) {
-  const result = await queueMetadataMutation(async () => {
-    const videos = await storageService.getVideos();
-    const index = videos.findIndex((video) => video.id === id);
-
-    if (index === -1) {
-      return { found: false };
-    }
-
-    const [video] = videos.splice(index, 1);
-    await storageService.saveVideos(videos);
-
-    const annotations = await storageService.getAnnotations();
-    if (annotations[id]) {
-      delete annotations[id];
-      await storageService.saveAnnotations(annotations);
-    }
-
-    return {
-      found: true,
-      storageName: video.storageName
-    };
-  });
-
-  if (!result.found) {
-    jsonResponse(res, 404, { error: 'Video nao encontrado.' });
-    return;
-  }
-
-  await fsp.rm(path.join(VIDEO_DIR, result.storageName), { force: true });
-
-  jsonResponse(res, 200, { ok: true });
-}
-
-async function handleUpdateVideo(req, res, id) {
-  let payload;
-  try {
-    payload = await readJsonBody(req);
-  } catch (error) {
-    if (error.message === 'JSON_BODY_LIMIT_EXCEEDED') {
-      jsonResponse(res, 413, { error: 'Dados maiores que o limite permitido.' });
-      return;
-    }
-    if (error instanceof SyntaxError) {
-      jsonResponse(res, 400, { error: 'JSON invalido.' });
-      return;
-    }
-    throw error;
-  }
-
-  const playlistId = safeText(payload.playlistId, 80);
-  if (!playlistId) {
-    jsonResponse(res, 400, { error: 'Informe a playlist de destino.' });
-    return;
-  }
-
-  const result = await queueMetadataMutation(async () => {
-    const videos = await storageService.getVideos();
-    const index = videos.findIndex((video) => video.id === id);
-
-    if (index === -1) {
-      return { found: false };
-    }
-
-    const playlists = await storageService.getPlaylists();
-    const playlist = playlists.find((item) => item.id === playlistId);
-    if (!playlist) {
-      return { found: true, playlistFound: false };
-    }
-
-    const nextVideo = {
-      ...videos[index],
-      playlistId: playlist.id,
-      updatedAt: new Date().toISOString()
-    };
-
-    videos[index] = nextVideo;
-    await storageService.saveVideos(videos);
-
-    return {
-      found: true,
-      playlistFound: true,
-      video: videoSummary(nextVideo, playlists)
-    };
-  });
-
-  if (!result.found) {
-    jsonResponse(res, 404, { error: 'Video nao encontrado.' });
-    return;
-  }
-
-  if (!result.playlistFound) {
-    jsonResponse(res, 404, { error: 'Playlist nao encontrada.' });
-    return;
-  }
-
-  jsonResponse(res, 200, { video: result.video });
-}
-
-function normalizePoint(point) {
-  const x = Number(point?.x);
-  const y = Number(point?.y);
-
-  if (!Number.isFinite(x) || !Number.isFinite(y)) {
-    return null;
-  }
-
-  return {
-    x: Math.max(0, Math.min(1, Number(x.toFixed(5)))),
-    y: Math.max(0, Math.min(1, Number(y.toFixed(5))))
-  };
-}
-
-function normalizeStroke(stroke) {
-  const points = Array.isArray(stroke?.points)
-    ? stroke.points.map(normalizePoint).filter(Boolean).slice(0, 1200)
-    : [];
-
-  if (points.length < 2) {
-    return null;
-  }
-
-  const width = Number(stroke?.width);
-  const color = /^#[0-9a-f]{6}$/i.test(String(stroke?.color || '')) ? stroke.color : '#caff42';
-
-  return {
-    color,
-    width: Number.isFinite(width) ? Math.max(2, Math.min(18, Math.round(width))) : 5,
-    points
-  };
-}
-
-function normalizeBox(box) {
-  const x = Number(box?.x);
-  const y = Number(box?.y);
-  const width = Number(box?.width);
-  const text = safeText(box?.text, 240);
-  const color = /^#[0-9a-f]{6}$/i.test(String(box?.color || '')) ? box.color : '#caff42';
-
-  if (!text || !Number.isFinite(x) || !Number.isFinite(y)) {
-    return null;
-  }
-
-  return {
-    id: safeText(box?.id, 80) || randomUUID(),
-    x: Math.max(0, Math.min(1, Number(x.toFixed(5)))),
-    y: Math.max(0, Math.min(1, Number(y.toFixed(5)))),
-    width: Number.isFinite(width) ? Math.max(0.12, Math.min(0.55, Number(width.toFixed(5)))) : 0.24,
-    text,
-    color
-  };
-}
-
-function normalizeAnnotation(annotation) {
-  const time = Number(annotation?.time);
-  if (!Number.isFinite(time) || time < 0) {
-    return null;
-  }
-
-  const strokes = Array.isArray(annotation?.strokes)
-    ? annotation.strokes.map(normalizeStroke).filter(Boolean).slice(0, 40)
-    : [];
-  const boxes = Array.isArray(annotation?.boxes)
-    ? annotation.boxes.map(normalizeBox).filter(Boolean).slice(0, 20)
-    : [];
-  const text = safeText(annotation?.text, 900);
-
-  if (!text && strokes.length === 0 && boxes.length === 0) {
-    return null;
-  }
-
-  const now = new Date().toISOString();
-
-  return {
-    id: safeText(annotation?.id, 80) || randomUUID(),
-    time: Number(time.toFixed(2)),
-    text,
-    color: /^#[0-9a-f]{6}$/i.test(String(annotation?.color || '')) ? annotation.color : '#caff42',
-    strokes,
-    boxes,
-    createdAt: safeText(annotation?.createdAt, 40) || now,
-    updatedAt: now
-  };
-}
-
-async function ensureVideoExists(id) {
-  const videos = await storageService.getVideos();
-  return videos.some((video) => video.id === id);
-}
-
-async function handleGetAnnotations(res, id) {
-  if (!(await ensureVideoExists(id))) {
-    jsonResponse(res, 404, { error: 'Video nao encontrado.' });
-    return;
-  }
-
-  const store = await storageService.getAnnotations();
-  jsonResponse(res, 200, { annotations: Array.isArray(store[id]) ? store[id] : [] });
-}
-
-async function handlePutAnnotations(req, res, id) {
-  if (!(await ensureVideoExists(id))) {
-    jsonResponse(res, 404, { error: 'Video nao encontrado.' });
-    return;
-  }
-
-  let payload;
-  try {
-    payload = await readJsonBody(req);
-  } catch (error) {
-    if (error.message === 'JSON_BODY_LIMIT_EXCEEDED') {
-      jsonResponse(res, 413, { error: 'Anotacoes maiores que o limite permitido.' });
-      return;
-    }
-    if (error instanceof SyntaxError) {
-      jsonResponse(res, 400, { error: 'JSON invalido.' });
-      return;
-    }
-    throw error;
-  }
-
-  const annotations = Array.isArray(payload.annotations)
-    ? payload.annotations.map(normalizeAnnotation).filter(Boolean).slice(0, 100)
-    : [];
-
-  annotations.sort((a, b) => a.time - b.time);
-
-  await queueMetadataMutation(async () => {
-    const store = await storageService.getAnnotations();
-    store[id] = annotations;
-    await storageService.saveAnnotations(store);
-  });
-
-  jsonResponse(res, 200, { annotations });
-}
-
-function parseRange(rangeHeader, size) {
-  if (!rangeHeader) {
-    return null;
-  }
-
-  const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader);
-  if (!match) {
-    return false;
-  }
-
-  let start;
-  let end;
-
-  if (match[1] === '' && match[2] === '') {
-    return false;
-  }
-
-  if (match[1] === '') {
-    const suffixLength = Number(match[2]);
-    if (!Number.isFinite(suffixLength) || suffixLength <= 0) {
-      return false;
-    }
-    start = Math.max(size - suffixLength, 0);
-    end = size - 1;
-  } else {
-    start = Number(match[1]);
-    end = match[2] === '' ? size - 1 : Number(match[2]);
-  }
-
-  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end < start || start >= size) {
-    return false;
-  }
-
-  return {
-    start,
-    end: Math.min(end, size - 1)
-  };
-}
-
-async function serveVideo(req, res, pathname) {
-  const storageName = safeBaseName(decodeURIComponent(pathname.replace('/videos/', '')));
-  const filePath = path.join(VIDEO_DIR, storageName);
-
-  if (!isInside(VIDEO_DIR, filePath)) {
-    jsonResponse(res, 400, { error: 'Caminho invalido.' });
-    return;
-  }
-
-  const stat = await fsp.stat(filePath);
-  const videos = await storageService.getVideos();
-  const metadata = videos.find((video) => video.storageName === storageName);
-  const contentType = metadata?.contentType || getMime(filePath);
-  const range = parseRange(req.headers.range, stat.size);
-
-  if (range === false) {
-    res.writeHead(416, {
-      'Content-Range': `bytes */${stat.size}`,
-      'Accept-Ranges': 'bytes'
-    });
-    res.end();
-    return;
-  }
-
-  if (range) {
-    res.writeHead(206, {
-      'Content-Type': contentType,
-      'Content-Length': range.end - range.start + 1,
-      'Content-Range': `bytes ${range.start}-${range.end}/${stat.size}`,
-      'Accept-Ranges': 'bytes',
-      'Cache-Control': 'public, max-age=3600'
-    });
-
-    if (req.method === 'HEAD') {
-      res.end();
-      return;
-    }
-
-    fs.createReadStream(filePath, range).pipe(res);
-    return;
-  }
-
-  res.writeHead(200, {
-    'Content-Type': contentType,
-    'Content-Length': stat.size,
-    'Accept-Ranges': 'bytes',
-    'Cache-Control': 'public, max-age=3600'
-  });
-
-  if (req.method === 'HEAD') {
-    res.end();
-    return;
-  }
-
-  fs.createReadStream(filePath).pipe(res);
-}
-
-async function serveStatic(req, res, pathname) {
-  const relative = pathname === '/' ? 'index.html' : decodeURIComponent(pathname.slice(1));
-  let filePath = path.normalize(path.join(PUBLIC_DIR, relative));
-
-  if (!isInside(PUBLIC_DIR, filePath)) {
-    jsonResponse(res, 400, { error: 'Caminho invalido.' });
-    return;
-  }
-
-  let stat;
-  let requestedPath = pathname;
-
-  try {
-    stat = await fsp.stat(filePath);
-  } catch (error) {
-    if (error.code !== 'ENOENT') {
-      throw error;
-    }
-
-    const extension = path.extname(filePath).toLowerCase();
-    const shouldFallbackToSpa = extension === '' || extension === '.html';
-
-    if (!shouldFallbackToSpa) {
-      jsonResponse(res, 404, { error: 'Arquivo nao encontrado.' });
-      return;
-    }
-
-    filePath = path.join(PUBLIC_DIR, 'index.html');
-    stat = await fsp.stat(filePath);
-    requestedPath = '/';
-  }
-
-  if (!stat.isFile()) {
-    jsonResponse(res, 404, { error: 'Arquivo nao encontrado.' });
-    return;
-  }
-
-  const extension = path.extname(filePath);
-
-  res.writeHead(200, {
-    'Content-Type': getMime(filePath),
-    'Content-Length': stat.size,
-    'Cache-Control': requestedPath === '/' || ['.html', '.css', '.js'].includes(extension) ? 'no-store' : 'public, max-age=3600'
-  });
-
-  if (req.method === 'HEAD') {
-    res.end();
-    return;
-  }
-
-  fs.createReadStream(filePath).pipe(res);
-}
+const { jsonResponse, methodNotAllowed } = require('./storage');
+const { handleSearchNews } = require('./news');
+const { handleGetAccountPreferences, handleUpdateAccountPreferences } = require('./account');
+const { handleListTeams, handleCreateTeam, handleGetTeam, handleUpdateTeam, handleListTeamMembers, handleUpdateTeamMember } = require('./teams');
+const { handleListPlaylists, handleCreatePlaylist, handleDeletePlaylist } = require('./playlists');
+const {
+  handleListVideos,
+  handleCreateVideo,
+  handleDeleteVideo,
+  handleUpdateVideo,
+  handleTrimVideo,
+  handleLongCutVideo
+} = require('./videos');
+const { handleGetAnnotations, handlePutAnnotations } = require('./annotations');
+const { serveVideo, serveStatic } = require('./static');
+const { handleRegister, handleLogin, handleLogout, handleMe, handleUpdateMe } = require('./auth');
 
 async function route(req, res) {
   const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const { pathname } = requestUrl;
 
+  if (pathname === '/api/auth/register') {
+    if (req.method === 'POST') {
+      await handleRegister(req, res);
+      return;
+    }
+    methodNotAllowed(res);
+    return;
+  }
+
+  if (pathname === '/api/auth/login') {
+    if (req.method === 'POST') {
+      await handleLogin(req, res);
+      return;
+    }
+    methodNotAllowed(res);
+    return;
+  }
+
+  if (pathname === '/api/auth/logout') {
+    if (req.method === 'POST') {
+      await handleLogout(res);
+      return;
+    }
+    methodNotAllowed(res);
+    return;
+  }
+
+  if (pathname === '/api/auth/me') {
+    if (req.method === 'GET') {
+      await handleMe(req, res);
+      return;
+    }
+    if (req.method === 'PATCH') {
+      await handleUpdateMe(req, res);
+      return;
+    }
+    methodNotAllowed(res);
+    return;
+  }
+
+  if (pathname === '/api/news') {
+    if (req.method === 'GET') {
+      await handleSearchNews(req, res, requestUrl);
+      return;
+    }
+    methodNotAllowed(res);
+    return;
+  }
+
+  if (pathname === '/api/account/preferences') {
+    if (req.method === 'GET') {
+      await handleGetAccountPreferences(req, res);
+      return;
+    }
+    if (req.method === 'PATCH') {
+      await handleUpdateAccountPreferences(req, res);
+      return;
+    }
+    methodNotAllowed(res);
+    return;
+  }
+
+  if (pathname === '/api/teams') {
+    if (req.method === 'GET') {
+      await handleListTeams(req, res);
+      return;
+    }
+    if (req.method === 'POST') {
+      await handleCreateTeam(req, res);
+      return;
+    }
+    methodNotAllowed(res);
+    return;
+  }
+
+  const teamMembersMatch = /^\/api\/teams\/([^/]+)\/members$/.exec(pathname);
+  if (teamMembersMatch) {
+    if (req.method === 'GET') {
+      await handleListTeamMembers(req, res, teamMembersMatch[1]);
+      return;
+    }
+    methodNotAllowed(res);
+    return;
+  }
+
+  const teamMemberMatch = /^\/api\/teams\/([^/]+)\/members\/([^/]+)$/.exec(pathname);
+  if (teamMemberMatch) {
+    if (req.method === 'PATCH') {
+      await handleUpdateTeamMember(req, res, teamMemberMatch[1], teamMemberMatch[2]);
+      return;
+    }
+    methodNotAllowed(res);
+    return;
+  }
+
+  const teamDetailsMatch = /^\/api\/teams\/([^/]+)$/.exec(pathname);
+  if (teamDetailsMatch) {
+    if (req.method === 'GET') {
+      await handleGetTeam(req, res, teamDetailsMatch[1]);
+      return;
+    }
+    if (req.method === 'PATCH') {
+      await handleUpdateTeam(req, res, teamDetailsMatch[1]);
+      return;
+    }
+    methodNotAllowed(res);
+    return;
+  }
+
   if (pathname === '/api/playlists') {
     if (req.method === 'GET') {
-      await handleListPlaylists(res);
+      await handleListPlaylists(req, res);
       return;
     }
     if (req.method === 'POST') {
@@ -1006,7 +149,7 @@ async function route(req, res) {
   const playlistDeleteMatch = /^\/api\/playlists\/([^/]+)$/.exec(pathname);
   if (playlistDeleteMatch) {
     if (req.method === 'DELETE') {
-      await handleDeletePlaylist(res, playlistDeleteMatch[1]);
+      await handleDeletePlaylist(req, res, playlistDeleteMatch[1]);
       return;
     }
     methodNotAllowed(res);
@@ -1015,7 +158,7 @@ async function route(req, res) {
 
   if (pathname === '/api/videos') {
     if (req.method === 'GET') {
-      await handleListVideos(res);
+      await handleListVideos(req, res);
       return;
     }
     if (req.method === 'POST') {
@@ -1029,7 +172,7 @@ async function route(req, res) {
   const videoDeleteMatch = /^\/api\/videos\/([a-f0-9-]{36})$/.exec(pathname);
   if (videoDeleteMatch) {
     if (req.method === 'DELETE') {
-      await handleDeleteVideo(res, videoDeleteMatch[1]);
+      await handleDeleteVideo(req, res, videoDeleteMatch[1]);
       return;
     }
     if (req.method === 'PATCH') {
@@ -1040,10 +183,30 @@ async function route(req, res) {
     return;
   }
 
+  const videoTrimMatch = /^\/api\/videos\/([a-f0-9-]{36})\/trim$/.exec(pathname);
+  if (videoTrimMatch) {
+    if (req.method === 'POST') {
+      await handleTrimVideo(req, res, videoTrimMatch[1]);
+      return;
+    }
+    methodNotAllowed(res);
+    return;
+  }
+
+  const videoLongCutMatch = /^\/api\/videos\/([a-f0-9-]{36})\/long-cut$/.exec(pathname);
+  if (videoLongCutMatch) {
+    if (req.method === 'POST') {
+      await handleLongCutVideo(req, res, videoLongCutMatch[1]);
+      return;
+    }
+    methodNotAllowed(res);
+    return;
+  }
+
   const annotationsMatch = /^\/api\/videos\/([a-f0-9-]{36})\/annotations$/.exec(pathname);
   if (annotationsMatch) {
     if (req.method === 'GET') {
-      await handleGetAnnotations(res, annotationsMatch[1]);
+      await handleGetAnnotations(req, res, annotationsMatch[1]);
       return;
     }
     if (req.method === 'PUT') {
@@ -1064,7 +227,7 @@ async function route(req, res) {
       methodNotAllowed(res);
       return;
     }
-    await serveVideo(req, res, pathname);
+    await serveVideo(req, res, requestUrl);
     return;
   }
 
@@ -1092,10 +255,11 @@ const server = http.createServer((req, res) => {
   });
 });
 
-function listen(port, remainingAttempts = 10) {
+function listen(port, remainingAttempts = config.isProduction ? 0 : 10) {
   const onListening = () => {
     server.off('error', onError);
-    console.log(`Spill&Force rodando em http://localhost:${port}`);
+    const displayHost = config.host && config.host !== '0.0.0.0' ? config.host : 'localhost';
+    console.log(`Spill&Force rodando em http://${displayHost}:${port}`);
   };
 
   const onError = (error) => {
@@ -1112,7 +276,12 @@ function listen(port, remainingAttempts = 10) {
 
   server.once('error', onError);
   server.once('listening', onListening);
+  if (config.host) {
+    server.listen(port, config.host);
+    return;
+  }
+
   server.listen(port);
 }
 
-listen(PORT);
+listen(config.port);

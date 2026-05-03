@@ -15,6 +15,15 @@ export function Icon({ name, className = '' }) {
           <path d="M5 20h14" />
         </svg>
       );
+    case 'team':
+      return (
+        <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2">
+          <circle cx="9" cy="8" r="3" />
+          <circle cx="17" cy="10" r="2.4" />
+          <path d="M3.5 19a5.5 5.5 0 0 1 11 0" />
+          <path d="M14.5 16.5a4.5 4.5 0 0 1 6 2.5" />
+        </svg>
+      );
     case 'library':
       return (
         <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2">
@@ -22,6 +31,18 @@ export function Icon({ name, className = '' }) {
           <rect x="14" y="4" width="6" height="6" />
           <rect x="4" y="14" width="6" height="6" />
           <rect x="14" y="14" width="6" height="6" />
+        </svg>
+      );
+    case 'news':
+      return (
+        <svg viewBox="0 -960 960 960" className={className} fill="currentColor" aria-hidden="true">
+          <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h440l200 200v440q0 33-23.5 56.5T760-120H200Zm0-80h560v-400H600v-160H200v560Zm80-80h400v-80H280v80Zm0-320h200v-80H280v80Zm0 160h400v-80H280v80Zm-80-320v160-160 560-560Z" />
+        </svg>
+      );
+    case 'analysis':
+      return (
+        <svg viewBox="0 -960 960 960" className={className} fill="currentColor" aria-hidden="true">
+          <path d="M280-280h80v-280h-80v280Zm160 0h80v-400h-80v400Zm160 0h80v-160h-80v160ZM200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H200Zm0-80h560v-560H200v560Zm0-560v560-560Z" />
         </svg>
       );
     case 'search':
@@ -100,6 +121,21 @@ export function Icon({ name, className = '' }) {
           />
         </svg>
       );
+    case 'profile':
+      return (
+        <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2">
+          <circle cx="12" cy="8" r="4" />
+          <path d="M4.5 20a7.5 7.5 0 0 1 15 0" />
+        </svg>
+      );
+    case 'logout':
+      return (
+        <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M10 5H5v14h5" />
+          <path d="M14 8l4 4-4 4" />
+          <path d="M8 12h10" />
+        </svg>
+      );
     case 'text':
       return (
         <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2">
@@ -127,6 +163,18 @@ export function Icon({ name, className = '' }) {
           <path d="M5 4h11l3 3v13H5V4Z" />
           <path d="M8 4v6h8V4" />
           <path d="M8 20v-6h8v6" />
+        </svg>
+      );
+    case 'add-note':
+      return (
+        <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M5 4h12v8" />
+          <path d="M5 4v16h8" />
+          <path d="M8 8h6" />
+          <path d="M8 12h5" />
+          <circle cx="17" cy="17" r="4" />
+          <path d="M17 15v4" />
+          <path d="M15 17h4" />
         </svg>
       );
     case 'clock':

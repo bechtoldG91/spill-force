@@ -2,9 +2,10 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { config } = require('../config');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
-const RUNTIME_DIR = path.join(ROOT_DIR, 'storage', '.runtime');
+const RUNTIME_DIR = config.logDir;
 const SUPERVISOR_PID_FILE = path.join(RUNTIME_DIR, 'supervisor.pid');
 const SERVER_PID_FILE = path.join(RUNTIME_DIR, 'server.pid');
 const SUPERVISOR_LOG_FILE = path.join(RUNTIME_DIR, 'supervisor.log');
@@ -91,7 +92,11 @@ async function startServer() {
   const nextChild = spawn(process.execPath, ['server.js'], {
     cwd: ROOT_DIR,
     windowsHide: true,
-    stdio: ['ignore', 'pipe', 'pipe']
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: {
+      ...process.env,
+      NODE_ENV: process.env.NODE_ENV || config.nodeEnv
+    }
   });
 
   child = nextChild;

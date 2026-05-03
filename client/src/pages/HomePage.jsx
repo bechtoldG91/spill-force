@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { APP_USER } from '../lib/constants';
+import { authFetch } from '../lib/auth';
 import { formatDate, formatDuration } from '../lib/utils';
 import { Icon } from '../components/Icons';
+import { UserAvatar } from '../components/UserAvatar';
 
-export function HomePage({ showToast }) {
+export function HomePage({ showToast, authUser }) {
+  const currentUser = authUser || APP_USER;
   const [videos, setVideos] = useState([]);
+  const [userTeams, setUserTeams] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expandedPlaylists, setExpandedPlaylists] = useState({});
 
@@ -20,7 +24,7 @@ export function HomePage({ showToast }) {
         groups.set(playlistId, {
           id: playlistId,
           playlistName: video.playlistName || 'Playlist do dia',
-          uploader: video.uploader || APP_USER.name,
+          uploader: video.uploader || currentUser.name,
           createdAt: video.createdAt,
           previewVideo: video,
           videos: [video]
@@ -41,11 +45,11 @@ export function HomePage({ showToast }) {
     return Array.from(groups.values()).sort(
       (left, right) => new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime()
     );
-  }, [videos]);
+  }, [currentUser.name, videos]);
 
   const uploadedByUser = useMemo(
-    () => videos.filter((video) => (video.uploader || '').toLowerCase() === APP_USER.name.toLowerCase()),
-    [videos]
+    () => videos.filter((video) => (video.uploader || '').toLowerCase() === currentUser.name.toLowerCase()),
+    [currentUser.name, videos]
   );
 
   const profileStats = useMemo(
@@ -60,10 +64,10 @@ export function HomePage({ showToast }) {
       },
       {
         label: 'Times',
-        value: APP_USER.teams.length
+        value: authUser ? userTeams.length : APP_USER.teams.length
       }
     ],
-    [uploadedByUser]
+    [authUser, uploadedByUser, userTeams.length]
   );
 
   useEffect(() => {
@@ -71,7 +75,7 @@ export function HomePage({ showToast }) {
 
     async function loadFeed() {
       try {
-        const response = await fetch('/api/videos');
+        const response = await authFetch('/api/videos');
         if (!response.ok) {
           throw new Error('Nao foi possivel carregar o feed.');
         }
@@ -97,6 +101,49 @@ export function HomePage({ showToast }) {
     };
   }, [showToast]);
 
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadUserTeams() {
+      if (!authUser?.teamMemberships?.length) {
+        setUserTeams([]);
+        return;
+      }
+
+      try {
+        const loadedTeams = await Promise.all(
+          authUser.teamMemberships.map(async (membership) => {
+            const response = await authFetch(`/api/teams/${encodeURIComponent(membership.teamId)}`);
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) {
+              throw new Error(payload.error || 'Nao foi possivel carregar os times.');
+            }
+
+            return {
+              id: membership.teamId,
+              role: membership.role,
+              ...(payload.team || {})
+            };
+          })
+        );
+
+        if (!ignore) {
+          setUserTeams(loadedTeams);
+        }
+      } catch (error) {
+        if (!ignore) {
+          showToast(error.message);
+          setUserTeams([]);
+        }
+      }
+    }
+
+    loadUserTeams();
+    return () => {
+      ignore = true;
+    };
+  }, [authUser, showToast]);
+
   function togglePlaylistExpansion(playlistId) {
     setExpandedPlaylists((current) => ({
       ...current,
@@ -104,25 +151,20 @@ export function HomePage({ showToast }) {
     }));
   }
 
+  const displayedTeams = authUser ? userTeams : APP_USER.teams;
+
   return (
-    <section className="mx-auto grid w-full max-w-[1240px] gap-6 xl:grid-cols-[290px_minmax(0,1fr)]">
-      <aside className="xl:sticky xl:top-28 xl:self-start">
+    <section className="mx-auto grid w-full max-w-[1180px] gap-5 lg:grid-cols-[260px_minmax(0,1fr)] xl:grid-cols-[280px_minmax(0,1fr)]">
+      <aside className="lg:sticky lg:top-28 lg:self-start">
         <article className="tactical-panel relative pt-20">
           <div className="absolute left-1/2 top-3 -translate-x-1/2 -translate-y-[18%]">
-            <div className="grid h-28 w-28 place-items-center rounded-full border-4 border-white bg-tactical-pitch/10 text-3xl font-black text-tactical-pitch shadow-xl">
-              {APP_USER.initials}
-            </div>
+            <UserAvatar user={currentUser} className="h-28 w-28 border-4 border-white text-3xl" />
           </div>
 
           <div className="space-y-4 px-5 pb-5 pt-12 text-center">
             <div className="min-w-0 text-center">
-              <h1 className="text-2xl font-black tracking-tight text-tactical-ink">{APP_USER.name}</h1>
-              <button type="button" className="mt-1 text-sm font-medium text-tactical-ash transition hover:text-tactical-pitch">
-                Ver perfil
-              </button>
+              <h1 className="text-2xl font-black tracking-tight text-tactical-ink">{currentUser.name}</h1>
             </div>
-
-            <p className="mx-auto max-w-[220px] text-sm leading-6 text-tactical-ash">{APP_USER.summary}</p>
           </div>
 
           <div className="grid grid-cols-3 border-t border-tactical-ink/10">
@@ -139,25 +181,37 @@ export function HomePage({ showToast }) {
           <h2 className="text-xl font-black tracking-tight text-tactical-ink">Seus times</h2>
 
           <div className="mt-4 space-y-4">
-            {APP_USER.teams.map((team) => (
+            {displayedTeams.map((team) => (
               <div key={team.id} className="flex items-center gap-3">
-                <div className="grid h-14 w-14 shrink-0 place-items-center rounded-full border border-tactical-pitch/15 bg-tactical-bone text-lg font-black text-tactical-pitch">
-                  {team.name.slice(0, 1)}
+                <div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-full border border-tactical-pitch/15 bg-tactical-bone text-lg font-black text-tactical-pitch">
+                  {team.logoDataUrl ? (
+                    <img src={team.logoDataUrl} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    team.name.slice(0, 1)
+                  )}
                 </div>
                 <div className="min-w-0">
                   <strong className="block truncate text-base font-black text-tactical-ink">{team.name}</strong>
-                  <span className="block truncate text-sm text-tactical-ash">{team.role}</span>
+                  <span className="block truncate text-sm text-tactical-ash">{team.city || team.role}</span>
                   <span className="block truncate text-xs font-semibold uppercase tracking-[0.14em] text-tactical-ash/80">
-                    {team.note}
+                    {team.role || team.note}
                   </span>
                 </div>
               </div>
             ))}
+
+            {!displayedTeams.length ? (
+              <div className="rounded-xl border border-dashed border-tactical-ink/15 px-4 py-6 text-center">
+                <strong className="text-xs font-black uppercase tracking-[0.16em] text-tactical-ash">
+                  Nenhum time vinculado
+                </strong>
+              </div>
+            ) : null}
           </div>
         </article>
       </aside>
 
-      <div className="mx-auto flex w-full max-w-[760px] flex-col gap-5">
+      <div className="flex w-full min-w-0 flex-col gap-5">
         {loading ? (
           <div className="tactical-panel px-6 py-10 text-sm font-semibold uppercase tracking-[0.18em] text-tactical-ash">
             Carregando feed...
@@ -179,29 +233,22 @@ export function HomePage({ showToast }) {
         ) : null}
 
         {playlistFeed.map((entry) => (
-          <article key={entry.id} className="tactical-panel overflow-hidden">
-            <div className="flex items-center gap-3 border-b border-tactical-ink/10 px-5 py-4">
-              <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-tactical-pitch text-sm font-black text-white shadow-glow">
-                {APP_USER.initials}
-              </div>
-              <div className="min-w-0">
-                <strong className="block truncate text-sm font-black uppercase tracking-[0.16em] text-tactical-ink">
-                  {entry.uploader || APP_USER.unit}
-                </strong>
-                <span className="block truncate text-xs font-semibold uppercase tracking-[0.18em] text-tactical-ash">
-                  {formatDate(entry.createdAt)}
-                </span>
-              </div>
-            </div>
-
-            <div className="space-y-4 px-5 py-5">
-              <div className="space-y-2">
-                <p className="text-lg font-black leading-8 text-tactical-ink">
-                  {entry.uploader || APP_USER.name} subiu a playlist "{entry.playlistName}"
-                </p>
-                <div className="flex flex-wrap gap-3 text-[0.68rem] font-black uppercase tracking-[0.18em] text-tactical-ash">
-                  <span>{entry.videos.length} {entry.videos.length === 1 ? 'video adicionado' : 'videos adicionados'}</span>
-                  <span>{entry.previewVideo?.kind || 'video'}</span>
+          <article key={entry.id} className="tactical-panel px-5 py-5">
+            <div className="space-y-4">
+              <div className="flex items-start gap-4">
+                <UserAvatar user={currentUser} className="h-14 w-14 rounded-xl text-sm" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.68rem] font-black uppercase tracking-[0.18em] text-tactical-ash">
+                    <strong className="text-tactical-ink">{entry.uploader || APP_USER.unit}</strong>
+                    <span>{formatDate(entry.createdAt)}</span>
+                  </div>
+                  <p className="text-lg font-black leading-8 text-tactical-ink">
+                    Subiu {entry.videos.length} {entry.videos.length === 1 ? 'video' : 'videos'} para a playlist "{entry.playlistName}"
+                  </p>
+                  <div className="flex flex-wrap gap-3 text-[0.68rem] font-black uppercase tracking-[0.18em] text-tactical-ash">
+                    <span>{entry.videos.length} {entry.videos.length === 1 ? 'video adicionado' : 'videos adicionados'}</span>
+                    <span>{entry.previewVideo?.kind || 'video'}</span>
+                  </div>
                 </div>
               </div>
 
@@ -210,15 +257,15 @@ export function HomePage({ showToast }) {
                   <Link
                     key={video.id}
                     to={`/analise?video=${video.id}`}
-                    className="group flex items-center gap-4 rounded-[1.15rem] border border-tactical-ink/10 bg-white px-3 py-3 transition hover:border-tactical-pitch/30 hover:bg-tactical-bone/35"
+                    className="group flex flex-col gap-3 rounded-[1.15rem] border border-tactical-ink/10 bg-white px-3 py-3 transition hover:border-tactical-pitch/30 hover:bg-tactical-bone/35 sm:flex-row sm:items-center sm:gap-4"
                     aria-label={`Abrir ${video.title} na analise`}
                   >
-                    <div className="relative w-36 shrink-0 overflow-hidden rounded-xl border border-tactical-ink/10 bg-tactical-ink">
+                    <div className="relative w-full shrink-0 overflow-hidden rounded-xl border border-tactical-ink/10 bg-tactical-ink sm:w-36">
                       <video src={video.url} muted playsInline preload="metadata" className="aspect-video w-full bg-black object-cover" />
                     </div>
 
                     <div className="min-w-0 flex-1">
-                      <strong className="block truncate text-lg font-black tracking-tight text-tactical-ink">{video.title}</strong>
+                      <strong className="block truncate text-base font-black tracking-tight text-tactical-ink md:text-lg">{video.title}</strong>
                       <div className="mt-1 flex flex-wrap gap-2 text-sm text-tactical-ash">
                         <span>{video.playlistName || 'Playlist do dia'}</span>
                         <span>•</span>

@@ -1,6 +1,11 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const { config } = require('./config');
+const backendTarget = `http://localhost:${config.port}`;
 
 export default defineConfig({
   root: path.resolve('client'),
@@ -10,12 +15,12 @@ export default defineConfig({
     host: true,
     port: 5173,
     proxy: {
-      '/api': 'http://localhost:3000',
-      '/videos': 'http://localhost:3000'
+      '/api': backendTarget,
+      '/videos': backendTarget
     }
   },
   build: {
-    outDir: path.resolve('public'),
+    outDir: config.publicDir,
     emptyOutDir: true,
     assetsDir: 'assets'
   }

@@ -5,10 +5,13 @@
   "main": "server.js",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "start": "powershell -ExecutionPolicy Bypass -File .\\scripts\\start-stable-server.ps1",
+    "build": "npm run build:client && node scripts/verify-public-build.js",
+    "build:client": "vite build",
+    "start": "node scripts/start-production.js",
+    "start:prod": "node scripts/start-production.js",
     "start:foreground": "node server.js",
     "start:stable": "powershell -ExecutionPolicy Bypass -File .\\scripts\\start-stable-server.ps1",
+    "heroku-postbuild": "npm run build",
     "stop": "powershell -ExecutionPolicy Bypass -File .\\scripts\\stop-stable-server.ps1",
     "status": "powershell -ExecutionPolicy Bypass -File .\\scripts\\server-status.ps1",
     "check": "node --check server.js"
@@ -23,6 +26,7 @@
     "node": ">=18"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
     "ffmpeg-static": "^5.3.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

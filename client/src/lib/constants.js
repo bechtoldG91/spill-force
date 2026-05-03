@@ -5,7 +5,6 @@ export const APP_USER = {
   role: 'Treinador',
   team: 'Loco',
   unit: 'Comissao tecnica',
-  summary: 'Treinador da comissao tecnica, acompanhando uploads, playlists e analises do elenco.',
   teams: [
     {
       id: 'loco',
@@ -18,9 +17,24 @@ export const APP_USER = {
 
 export const NAV_ITEMS = [
   { to: '/', label: 'Inicio', icon: 'home' },
-  { to: '/upload', label: 'Upload', icon: 'upload' },
-  { to: '/biblioteca', label: 'Biblioteca', icon: 'library' },
-  { to: '/analise', label: 'Analise', icon: 'play' }
+  {
+    label: 'Clube',
+    icon: 'team',
+    items: [
+      { to: '/time', label: 'Meu clube', icon: 'team' },
+      { to: '/club-manage', label: 'Club manage', icon: 'settings', manageClubOnly: true }
+    ]
+  },
+  {
+    label: 'Video',
+    icon: 'film',
+    items: [
+      { to: '/upload', label: 'Upload', icon: 'upload' },
+      { to: '/biblioteca', label: 'Biblioteca', icon: 'library' },
+      { to: '/analise', label: 'Analise', icon: 'analysis' }
+    ]
+  },
+  { to: '/noticias', label: 'Noticias', icon: 'news' }
 ];
 
 export const SWATCHES = ['#3f8f29', '#78c93c', '#002244', '#1b5e9b', '#ffffff'];
