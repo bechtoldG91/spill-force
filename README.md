@@ -108,6 +108,27 @@ npm start
 
 Heroku executa `npm start` por padrao e o projeto tambem define `heroku-postbuild` para gerar `public/`.
 
+## Render
+
+O repositorio inclui `render.yaml` para criar um Web Service com Node, build de producao, variaveis e disco persistente.
+
+No Render Dashboard, crie um Blueprint apontando para:
+
+```text
+https://github.com/bechtoldG91/spill-force
+```
+
+O Blueprint configura:
+
+- `buildCommand`: `npm ci && npm run build`
+- `startCommand`: `npm start`
+- `HOST=0.0.0.0`
+- `NODE_ENV=production`
+- `JWT_SECRET` gerado automaticamente pelo Render
+- disco persistente em `/opt/render/project/src/storage`
+
+O disco persistente e necessario para preservar contas, times, videos e metadados JSON entre deploys e restarts.
+
 ## PM2
 
 ```bash
