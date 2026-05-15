@@ -448,6 +448,34 @@ async function readUsersStore() {
 }
 
 function sanitizeTeams(teams) {
+  const sanitizeRequests = (requests, includeRole = false) =>
+    (Array.isArray(requests) ? requests : [])
+      .filter((request) => request && typeof request === 'object')
+      .map((request) => ({
+        id: safeText(request.id, 80) || randomUUID(),
+        userId: safeText(request.userId, 100),
+        requestedRole: includeRole ? safeText(request.requestedRole, 40) : '',
+        requestedAt: safeText(request.requestedAt, 40) || new Date().toISOString(),
+        status: safeText(request.status, 40) || 'pending'
+      }))
+      .filter((request) => request.userId && request.status === 'pending')
+      .slice(0, 100);
+  const sanitizeInvites = (invites) =>
+    (Array.isArray(invites) ? invites : [])
+      .filter((invite) => invite && typeof invite === 'object')
+      .map((invite) => ({
+        id: safeText(invite.id, 80) || randomUUID(),
+        code: safeText(invite.code, 120) || randomUUID(),
+        email: safeText(invite.email, 160).toLowerCase(),
+        role: safeText(invite.role, 40),
+        invitedBy: safeText(invite.invitedBy, 100),
+        invitedAt: safeText(invite.invitedAt, 40) || new Date().toISOString(),
+        expiresAt: safeText(invite.expiresAt, 40),
+        status: safeText(invite.status, 40) || 'pending'
+      }))
+      .filter((invite) => invite.email && invite.role && invite.status === 'pending')
+      .slice(0, 200);
+
   return (Array.isArray(teams) ? teams : [])
     .filter((team) => team && typeof team === 'object')
     .map((team) => ({
@@ -474,7 +502,9 @@ function sanitizeTeams(teams) {
       },
       ownerIds: Array.isArray(team.ownerIds)
         ? [...new Set(team.ownerIds.map((ownerId) => safeText(ownerId, 100)).filter(Boolean))].slice(0, 50)
-        : []
+        : [],
+      invites: sanitizeInvites(team.invites),
+      roleChangeRequests: sanitizeRequests(team.roleChangeRequests, true)
     }))
     .filter((team) => team.name);
 }
@@ -818,6 +848,7 @@ const storageService = {
   findUserById: (id) => metadataRepository.findUserById(id),
   createUser: (user) => metadataTransaction((repository) => repository.createUser(user)),
   updateUser: (id, updater) => metadataTransaction((repository) => repository.updateUser(id, updater)),
+  deleteUser: (id) => metadataTransaction((repository) => repository.deleteUser(id)),
   listTeams: () => metadataRepository.listTeams(),
   findTeamById: (id) => metadataRepository.findTeamById(id),
   createTeam: (team) => metadataTransaction((repository) => repository.createTeam(team)),

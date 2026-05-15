@@ -1,8 +1,7 @@
-const { createHmac, randomUUID, timingSafeEqual } = require('node:crypto');
+const { createHmac, randomInt, randomUUID, timingSafeEqual } = require('node:crypto');
 const bcrypt = require('bcryptjs');
 const { config } = require('./config');
 const {
-  LEGACY_OWNER_ID,
   storageService,
   jsonResponse,
   safeText,
@@ -14,19 +13,10 @@ const TEAM_ROLES = new Set(['admin', 'treinador', 'atleta']);
 const JWT_SECRET = config.jwtSecret;
 const JWT_TTL_SECONDS = config.jwtTtlSeconds;
 const PASSWORD_HASH_ROUNDS = config.passwordHashRounds;
-const CURRENT_USER_EMAIL = 'gbechtold91@gmail.com';
 const MAX_PROFILE_PHOTO_DATA_URL_LENGTH = 1400000;
 const PROFILE_PHOTO_DATA_URL_PATTERN = /^data:image\/(?:png|jpe?g|webp);base64,[a-z0-9+/=]+$/i;
-
-const LEGACY_USER = {
-  id: LEGACY_OWNER_ID,
-  email: CURRENT_USER_EMAIL,
-  name: 'Coach Gui',
-  initials: 'CG',
-  globalAdmin: config.globalAdminEmails.includes(CURRENT_USER_EMAIL),
-  teamMemberships: [],
-  legacy: true
-};
+const PASSWORD_RESET_CODE_TTL_MS = 15 * 60 * 1000;
+const PASSWORD_RESET_CODE_PATTERN = /^\d{6}$/;
 
 function base64UrlEncode(value) {
   const input = Buffer.isBuffer(value) ? value : Buffer.from(String(value));
@@ -90,6 +80,20 @@ function verifyJwt(token) {
   return payload;
 }
 
+function safeStringEqual(left, right) {
+  const leftBuffer = Buffer.from(String(left || ''));
+  const rightBuffer = Buffer.from(String(right || ''));
+  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function generatePasswordResetCode() {
+  return String(randomInt(0, 1000000)).padStart(6, '0');
+}
+
+function hashPasswordResetCode(email, code) {
+  return createHmac('sha256', JWT_SECRET).update(`${normalizeEmail(email)}:${String(code || '')}`).digest('hex');
+}
+
 function parseCookies(cookieHeader) {
   return String(cookieHeader || '')
     .split(';')
@@ -141,8 +145,7 @@ function publicUser(user) {
     initials,
     avatarDataUrl,
     globalAdmin: isGlobalAdmin({ email, globalAdmin: user.globalAdmin }),
-    teamMemberships: normalizeTeamMemberships(user.teamMemberships),
-    legacy: Boolean(user.legacy)
+    teamMemberships: normalizeTeamMemberships(user.teamMemberships)
   };
 }
 
@@ -235,6 +238,113 @@ function normalizeTeamMemberships(memberships) {
     });
 }
 
+function accountCanAccessApp(user) {
+  return Boolean(isGlobalAdmin(user) || normalizeTeamMemberships(user?.teamMemberships).length);
+}
+
+function adminUserSummary(user, teamsById = new Map()) {
+  const responseUser = publicUser(user);
+  return {
+    id: responseUser.id,
+    email: responseUser.email,
+    name: responseUser.name,
+    firstName: responseUser.firstName,
+    lastName: responseUser.lastName,
+    phone: responseUser.phone,
+    initials: responseUser.initials,
+    globalAdmin: responseUser.globalAdmin,
+    teamMemberships: responseUser.teamMemberships.map((membership) => ({
+      ...membership,
+      name: safeText(teamsById.get(membership.teamId)?.name, 120)
+    })),
+    createdAt: safeText(user.createdAt, 40),
+    updatedAt: safeText(user.updatedAt, 40)
+  };
+}
+
+function lastAdminTeamIdsForUser(targetUser, users) {
+  const adminTeamIds = normalizeTeamMemberships(targetUser.teamMemberships)
+    .filter((membership) => membership.role === 'admin')
+    .map((membership) => membership.teamId);
+
+  if (!adminTeamIds.length) {
+    return [];
+  }
+
+  const adminCounts = new Map();
+  for (const user of users) {
+    for (const membership of normalizeTeamMemberships(user.teamMemberships)) {
+      if (membership.role === 'admin') {
+        adminCounts.set(membership.teamId, (adminCounts.get(membership.teamId) || 0) + 1);
+      }
+    }
+  }
+
+  return adminTeamIds.filter((teamId) => (adminCounts.get(teamId) || 0) <= 1);
+}
+
+async function deleteUserAccountData(repository, userId, { protectLastTeamAdmin = true } = {}) {
+  const safeUserId = safeText(userId, 100);
+  const users = await repository.listUsers();
+  const targetUser = users.find((user) => user.id === safeUserId);
+  if (!targetUser) {
+    return { missing: true };
+  }
+
+  const teams = await repository.listTeams();
+  const teamsById = new Map(teams.map((team) => [team.id, team]));
+  const lastAdminTeamIds = protectLastTeamAdmin ? lastAdminTeamIdsForUser(targetUser, users) : [];
+  if (lastAdminTeamIds.length) {
+    return {
+      lastAdminTeams: lastAdminTeamIds.map((teamId) => teamsById.get(teamId)?.name || teamId)
+    };
+  }
+
+  const personalScope = { ownerId: targetUser.id };
+  const videos = await repository.listVideos(personalScope);
+  const playlists = await repository.listPlaylists(personalScope);
+  const videoIds = videos.map((video) => video.id).filter(Boolean);
+  const storageNames = videos.map((video) => video.storageName).filter(Boolean);
+
+  await repository.saveVideos([], personalScope);
+  await repository.savePlaylists([], personalScope);
+  await repository.deleteAnnotationsForVideos(videoIds);
+
+  const nextTeams = teams.map((team) => {
+    const ownerIds = (Array.isArray(team.ownerIds) ? team.ownerIds : []).filter((ownerId) => ownerId !== targetUser.id);
+    const invites = (Array.isArray(team.invites) ? team.invites : []).filter(
+      (invite) => normalizeEmail(invite?.email) !== normalizeEmail(targetUser.email) && invite?.invitedBy !== targetUser.id
+    );
+    const roleChangeRequests = (Array.isArray(team.roleChangeRequests) ? team.roleChangeRequests : []).filter(
+      (request) => request?.userId !== targetUser.id
+    );
+    const changed =
+      ownerIds.length !== (Array.isArray(team.ownerIds) ? team.ownerIds : []).length ||
+      invites.length !== (Array.isArray(team.invites) ? team.invites : []).length ||
+      roleChangeRequests.length !== (Array.isArray(team.roleChangeRequests) ? team.roleChangeRequests : []).length;
+
+    return changed
+      ? {
+          ...team,
+          ownerIds,
+          invites,
+          roleChangeRequests,
+          updatedAt: new Date().toISOString()
+        }
+      : team;
+  });
+
+  await repository.saveTeams(nextTeams);
+  const deletedUser = await repository.deleteUser(targetUser.id);
+
+  return {
+    user: deletedUser,
+    deletedVideos: videos.length,
+    deletedPlaylists: playlists.length,
+    storageNames
+  };
+}
+
 function isGlobalAdmin(user) {
   if (user?.globalAdmin === true) {
     return true;
@@ -281,15 +391,6 @@ async function getRequestUser(req) {
   return user ? publicUser(user) : null;
 }
 
-async function getRequestIdentity(req) {
-  return (await getRequestUser(req)) || LEGACY_USER;
-}
-
-async function getRequestOwnerId(req) {
-  const user = await getRequestIdentity(req);
-  return user.id;
-}
-
 async function requireGlobalAdmin(req, res) {
   const user = await getRequestUser(req);
   if (!user) {
@@ -307,13 +408,40 @@ async function requireGlobalAdmin(req, res) {
 
 async function authorizeRoles(req, res, teamId, roles) {
   const safeTeamId = safeText(teamId, 80);
+  const allowedRoles = new Set((Array.isArray(roles) ? roles : [roles]).map(normalizeTeamRole).filter(Boolean));
+
   if (!safeTeamId) {
-    const user = await getRequestIdentity(req);
+    const user = await getRequestUser(req);
+    if (!user) {
+      jsonResponse(res, 401, { error: 'Autenticacao necessaria.' });
+      return null;
+    }
+
+    if (isGlobalAdmin(user)) {
+      return {
+        user,
+        ownerId: user.id,
+        teamId: '',
+        role: 'global-admin'
+      };
+    }
+
+    const membership = normalizeTeamMemberships(user.teamMemberships).find(
+      (item) => !allowedRoles.size || allowedRoles.has(item.role)
+    );
+
+    if (!membership) {
+      jsonResponse(res, 403, { error: 'Permissao insuficiente.' });
+      return null;
+    }
+
+    const team = await storageService.findTeamById(membership.teamId);
     return {
       user,
       ownerId: user.id,
-      teamId: '',
-      role: user.legacy ? 'legacy' : ''
+      teamId: membership.teamId,
+      team,
+      role: membership.role
     };
   }
 
@@ -323,7 +451,6 @@ async function authorizeRoles(req, res, teamId, roles) {
     return null;
   }
 
-  const allowedRoles = new Set((Array.isArray(roles) ? roles : [roles]).map(normalizeTeamRole).filter(Boolean));
   const team = await storageService.findTeamById(safeTeamId);
   if (!team) {
     jsonResponse(res, 404, { error: 'Time nao encontrado.' });
@@ -374,6 +501,7 @@ async function handleRegister(req, res) {
   const email = normalizeEmail(payload.email);
   const password = String(payload.password || '');
   const name = normalizeName(payload.name, email);
+  const inviteCode = safeText(payload.inviteCode || payload.invite || payload.code, 120);
   const nameParts = splitNameParts(name);
 
   if (!email || !email.includes('@')) {
@@ -386,10 +514,53 @@ async function handleRegister(req, res) {
     return;
   }
 
+  const isConfiguredGlobalAdmin = config.globalAdminEmails.includes(email);
+  if (!isConfiguredGlobalAdmin && !inviteCode) {
+    jsonResponse(res, 400, { error: 'Informe o codigo de convite recebido pelo clube.' });
+    return;
+  }
+
   const result = await storageService.transaction(async (repository) => {
     const existing = await repository.findUserByEmail(email);
     if (existing) {
       return { exists: true };
+    }
+
+    let inviteTeam = null;
+    let invite = null;
+    if (!isConfiguredGlobalAdmin) {
+      const teams = await repository.listTeams();
+      for (const team of teams) {
+        const foundInvite = (Array.isArray(team.invites) ? team.invites : []).find((item) => item?.code === inviteCode);
+        if (foundInvite) {
+          inviteTeam = team;
+          invite = foundInvite;
+          break;
+        }
+      }
+
+      if (!invite || !inviteTeam) {
+        return { invalidInvite: true };
+      }
+
+      if (normalizeEmail(invite.email) !== email) {
+        return { emailMismatch: true };
+      }
+
+      const expiresAt = Date.parse(invite.expiresAt || '');
+      if (Number.isFinite(expiresAt) && expiresAt < Date.now()) {
+        await repository.updateTeam(inviteTeam.id, (team) => ({
+          ...team,
+          invites: (Array.isArray(team.invites) ? team.invites : []).filter((item) => item?.code !== inviteCode),
+          updatedAt: new Date().toISOString()
+        }));
+        return { expiredInvite: true };
+      }
+
+      invite.role = normalizeTeamRole(invite.role);
+      if (!invite.role) {
+        return { invalidInvite: true };
+      }
     }
 
     const now = new Date().toISOString();
@@ -402,18 +573,43 @@ async function handleRegister(req, res) {
       lastName: nameParts.lastName,
       phone: '',
       initials: userInitials(name),
+      globalAdmin: isConfiguredGlobalAdmin,
       passwordHash,
-      teamMemberships: [],
+      teamMemberships: inviteTeam && invite ? [{ teamId: inviteTeam.id, role: invite.role }] : [],
       createdAt: now,
       updatedAt: now
     };
 
     await repository.createUser(user);
-    return { user };
+
+    if (inviteTeam && invite) {
+      await repository.updateTeam(inviteTeam.id, (team) => ({
+        ...team,
+        invites: (Array.isArray(team.invites) ? team.invites : []).filter((item) => item?.code !== inviteCode),
+        updatedAt: new Date().toISOString()
+      }));
+    }
+
+    return { user, team: inviteTeam };
   });
 
   if (result.exists) {
     jsonResponse(res, 409, { error: 'Ja existe uma conta com este email.' });
+    return;
+  }
+
+  if (result.invalidInvite) {
+    jsonResponse(res, 404, { error: 'Convite invalido ou ja utilizado.' });
+    return;
+  }
+
+  if (result.emailMismatch) {
+    jsonResponse(res, 403, { error: 'Este convite foi emitido para outro email.' });
+    return;
+  }
+
+  if (result.expiredInvite) {
+    jsonResponse(res, 410, { error: 'Este convite expirou. Solicite um novo convite ao clube.' });
     return;
   }
 
@@ -450,9 +646,147 @@ async function handleLogin(req, res) {
   }
 
   const responseUser = publicUser(user);
+  if (!accountCanAccessApp(responseUser)) {
+    jsonResponse(res, 403, { error: 'Esta conta ainda nao possui convite aceito em um clube.' });
+    return;
+  }
+
   const token = signJwt(responseUser);
   setAuthCookie(res, token);
   jsonResponse(res, 200, { token, user: responseUser });
+}
+
+async function handleForgotPassword(req, res) {
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch (error) {
+    if (error.message === 'JSON_BODY_LIMIT_EXCEEDED') {
+      jsonResponse(res, 413, { error: 'Solicitacao maior que o limite permitido.' });
+      return;
+    }
+    if (error instanceof SyntaxError) {
+      jsonResponse(res, 400, { error: 'JSON invalido.' });
+      return;
+    }
+    throw error;
+  }
+
+  const email = normalizeEmail(payload.email);
+  if (!email || !email.includes('@')) {
+    jsonResponse(res, 400, { error: 'Informe um email valido.' });
+    return;
+  }
+
+  const resetCode = generatePasswordResetCode();
+  const expiresAt = new Date(Date.now() + PASSWORD_RESET_CODE_TTL_MS).toISOString();
+  const result = await storageService.transaction(async (repository) => {
+    const user = await repository.findUserByEmail(email);
+    if (!user) {
+      return { userFound: false };
+    }
+
+    await repository.updateUser(user.id, (currentUser) => ({
+      ...currentUser,
+      passwordResetCodeHash: hashPasswordResetCode(email, resetCode),
+      passwordResetExpiresAt: expiresAt,
+      passwordResetRequestedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }));
+
+    return { userFound: true };
+  });
+
+  jsonResponse(res, 200, {
+    ok: true,
+    message: 'Se o email existir, um codigo de recuperacao foi gerado.',
+    resetCode: result.userFound ? resetCode : '',
+    expiresInMinutes: Math.round(PASSWORD_RESET_CODE_TTL_MS / 60000)
+  });
+}
+
+async function handleResetPassword(req, res) {
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch (error) {
+    if (error.message === 'JSON_BODY_LIMIT_EXCEEDED') {
+      jsonResponse(res, 413, { error: 'Solicitacao maior que o limite permitido.' });
+      return;
+    }
+    if (error instanceof SyntaxError) {
+      jsonResponse(res, 400, { error: 'JSON invalido.' });
+      return;
+    }
+    throw error;
+  }
+
+  const email = normalizeEmail(payload.email);
+  const code = safeText(payload.code, 20).replace(/\D/g, '');
+  const password = String(payload.password || '');
+
+  if (!email || !email.includes('@')) {
+    jsonResponse(res, 400, { error: 'Informe um email valido.' });
+    return;
+  }
+
+  if (!PASSWORD_RESET_CODE_PATTERN.test(code)) {
+    jsonResponse(res, 400, { error: 'Informe o codigo de 6 digitos.' });
+    return;
+  }
+
+  if (password.length < 8) {
+    jsonResponse(res, 400, { error: 'A nova senha deve ter pelo menos 8 caracteres.' });
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(password, PASSWORD_HASH_ROUNDS);
+  const result = await storageService.transaction(async (repository) => {
+    const user = await repository.findUserByEmail(email);
+    if (!user) {
+      return { invalid: true };
+    }
+
+    const expiresAt = Date.parse(user.passwordResetExpiresAt || '');
+    if (!user.passwordResetCodeHash || !Number.isFinite(expiresAt) || expiresAt < Date.now()) {
+      return { expired: true };
+    }
+
+    const expectedHash = hashPasswordResetCode(email, code);
+    if (!safeStringEqual(user.passwordResetCodeHash, expectedHash)) {
+      return { invalid: true };
+    }
+
+    const updatedUser = await repository.updateUser(user.id, (currentUser) => {
+      const nextUser = {
+        ...currentUser,
+        passwordHash,
+        updatedAt: new Date().toISOString()
+      };
+
+      delete nextUser.passwordResetCodeHash;
+      delete nextUser.passwordResetExpiresAt;
+      delete nextUser.passwordResetRequestedAt;
+      return nextUser;
+    });
+
+    return { user: updatedUser };
+  });
+
+  if (result.expired) {
+    jsonResponse(res, 400, { error: 'Codigo expirado. Solicite um novo codigo.' });
+    return;
+  }
+
+  if (result.invalid || !result.user) {
+    jsonResponse(res, 401, { error: 'Codigo invalido.' });
+    return;
+  }
+
+  const user = publicUser(result.user);
+  const token = signJwt(user);
+  setAuthCookie(res, token);
+  jsonResponse(res, 200, { token, user });
 }
 
 async function handleLogout(res) {
@@ -464,6 +798,12 @@ async function handleMe(req, res) {
   const user = await getRequestUser(req);
   if (!user) {
     jsonResponse(res, 200, { user: null });
+    return;
+  }
+
+  if (!accountCanAccessApp(user)) {
+    clearAuthCookie(res);
+    jsonResponse(res, 403, { error: 'Esta conta ainda nao possui convite aceito em um clube.' });
     return;
   }
 
@@ -588,11 +928,121 @@ async function handleUpdateMe(req, res) {
   jsonResponse(res, 200, { user: publicUser(updatedUser) });
 }
 
+async function handleDeleteMe(req, res) {
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch (error) {
+    if (error.message === 'JSON_BODY_LIMIT_EXCEEDED') {
+      jsonResponse(res, 413, { error: 'Confirmacao maior que o limite permitido.' });
+      return;
+    }
+    if (error instanceof SyntaxError) {
+      jsonResponse(res, 400, { error: 'JSON invalido.' });
+      return;
+    }
+    throw error;
+  }
+
+  const user = await getRequestUser(req);
+  if (!user) {
+    jsonResponse(res, 401, { error: 'Autenticacao necessaria.' });
+    return;
+  }
+
+  if (safeText(payload.confirmation, 40).toUpperCase() !== 'EXCLUIR') {
+    jsonResponse(res, 400, { error: 'Digite EXCLUIR para confirmar.' });
+    return;
+  }
+
+  const result = await storageService.transaction((repository) =>
+    deleteUserAccountData(repository, user.id, {
+      protectLastTeamAdmin: !isGlobalAdmin(user)
+    })
+  );
+
+  if (result.missing) {
+    clearAuthCookie(res);
+    jsonResponse(res, 404, { error: 'Usuario nao encontrado.' });
+    return;
+  }
+
+  if (result.lastAdminTeams?.length) {
+    jsonResponse(res, 400, {
+      error: `Voce e o unico admin em: ${result.lastAdminTeams.join(', ')}. Promova outro admin antes de excluir a conta.`
+    });
+    return;
+  }
+
+  await Promise.all(result.storageNames.map((storageName) => storageService.removeVideoFile(storageName)));
+
+  clearAuthCookie(res);
+  jsonResponse(res, 200, {
+    ok: true,
+    deletedVideos: result.deletedVideos,
+    deletedPlaylists: result.deletedPlaylists
+  });
+}
+
+async function handleListAdminUsers(req, res) {
+  const admin = await requireGlobalAdmin(req, res);
+  if (!admin) {
+    return;
+  }
+
+  const users = await storageService.transaction(async (repository) => {
+    const [allUsers, teams] = await Promise.all([repository.listUsers(), repository.listTeams()]);
+    const teamsById = new Map(teams.map((team) => [team.id, team]));
+    return allUsers.map((user) => adminUserSummary(user, teamsById)).sort((left, right) =>
+      String(left.name || left.email).localeCompare(String(right.name || right.email), 'pt-BR', {
+        sensitivity: 'base'
+      })
+    );
+  });
+
+  jsonResponse(res, 200, { users });
+}
+
+async function handleDeleteAdminUser(req, res, userId) {
+  const admin = await requireGlobalAdmin(req, res);
+  if (!admin) {
+    return;
+  }
+
+  const targetUserId = safeText(decodeURIComponent(userId), 100);
+  if (!targetUserId) {
+    jsonResponse(res, 400, { error: 'Usuario invalido.' });
+    return;
+  }
+
+  if (targetUserId === admin.id) {
+    jsonResponse(res, 400, { error: 'Use a opcao Excluir minha conta para remover sua propria conta.' });
+    return;
+  }
+
+  const result = await storageService.transaction((repository) =>
+    deleteUserAccountData(repository, targetUserId, {
+      protectLastTeamAdmin: false
+    })
+  );
+
+  if (result.missing) {
+    jsonResponse(res, 404, { error: 'Usuario nao encontrado.' });
+    return;
+  }
+
+  await Promise.all(result.storageNames.map((storageName) => storageService.removeVideoFile(storageName)));
+
+  jsonResponse(res, 200, {
+    ok: true,
+    deletedUserId: targetUserId,
+    deletedVideos: result.deletedVideos,
+    deletedPlaylists: result.deletedPlaylists
+  });
+}
+
 module.exports = {
-  LEGACY_USER,
   getRequestUser,
-  getRequestIdentity,
-  getRequestOwnerId,
   requireGlobalAdmin,
   authorizeRoles,
   getTeamIdFromRequest,
@@ -602,7 +1052,12 @@ module.exports = {
   isGlobalAdmin,
   handleRegister,
   handleLogin,
+  handleForgotPassword,
+  handleResetPassword,
   handleLogout,
   handleMe,
-  handleUpdateMe
+  handleUpdateMe,
+  handleDeleteMe,
+  handleListAdminUsers,
+  handleDeleteAdminUser
 };

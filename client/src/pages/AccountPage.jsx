@@ -1,6 +1,4 @@
-import { Link } from 'react-router-dom';
-import { useEffect, useState } from 'react';
-import { Icon } from '../components/Icons';
+import { useEffect, useMemo, useState } from 'react';
 import { UserAvatar } from '../components/UserAvatar';
 import { APP_USER } from '../lib/constants';
 import { authFetch } from '../lib/auth';
@@ -48,7 +46,7 @@ function readFileAsDataUrl(file) {
   });
 }
 
-export function AccountPage({ authUser, mode = 'profile', showToast = () => {}, onAuthRefresh }) {
+export function AccountPage({ authUser, mode = 'settings', showToast = () => {}, onAuthRefresh, onAccountDeleted }) {
   const currentUser = authUser || APP_USER;
   const memberships = authUser?.teamMemberships || APP_USER.teams || [];
   const isSettings = mode === 'settings';
@@ -56,13 +54,74 @@ export function AccountPage({ authUser, mode = 'profile', showToast = () => {}, 
   const [profileForm, setProfileForm] = useState(() => profileFormFromUser(currentUser));
   const [passwordForm, setPasswordForm] = useState(EMPTY_PASSWORD_FORM);
   const [savingAvatar, setSavingAvatar] = useState(false);
-  const [savingProfile, setSavingProfile] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [adminUserSearch, setAdminUserSearch] = useState('');
+  const [loadingAdminUsers, setLoadingAdminUsers] = useState(false);
+  const [deletingAdminUserId, setDeletingAdminUserId] = useState('');
 
   useEffect(() => {
     setAvatarPreview(currentUser.avatarDataUrl || '');
     setProfileForm(profileFormFromUser(currentUser));
-  }, [currentUser.avatarDataUrl, currentUser.firstName, currentUser.id, currentUser.lastName, currentUser.name, currentUser.phone]);
+  }, [
+    currentUser.avatarDataUrl,
+    currentUser.firstName,
+    currentUser.id,
+    currentUser.lastName,
+    currentUser.name,
+    currentUser.phone
+  ]);
+
+  useEffect(() => {
+    if (!isSettings || !authUser?.globalAdmin) {
+      return undefined;
+    }
+
+    let ignore = false;
+    async function loadAdminUsers() {
+      setLoadingAdminUsers(true);
+      try {
+        const response = await authFetch('/api/admin/users');
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload.error || 'Nao foi possivel carregar usuarios.');
+        }
+        if (!ignore) {
+          setAdminUsers(payload.users || []);
+        }
+      } catch (error) {
+        if (!ignore) {
+          showToast(error.message);
+        }
+      } finally {
+        if (!ignore) {
+          setLoadingAdminUsers(false);
+        }
+      }
+    }
+
+    loadAdminUsers();
+    return () => {
+      ignore = true;
+    };
+  }, [authUser?.globalAdmin, isSettings, showToast]);
+
+  const filteredAdminUsers = useMemo(() => {
+    const query = adminUserSearch.trim().toLowerCase();
+    if (!query) {
+      return adminUsers;
+    }
+
+    return adminUsers.filter((user) =>
+      [user.name, user.email, ...(user.teamMemberships || []).map((membership) => membership.name || membership.teamId)]
+        .join(' ')
+        .toLowerCase()
+        .includes(query)
+    );
+  }, [adminUserSearch, adminUsers]);
 
   function updateProfileField(field, value) {
     setProfileForm((current) => ({
@@ -132,40 +191,40 @@ export function AccountPage({ authUser, mode = 'profile', showToast = () => {}, 
     }
   }
 
-  async function saveProfile(event) {
-    event.preventDefault();
-
+  async function saveAccountSettings() {
     const firstName = profileForm.firstName.trim();
     if (!firstName) {
       showToast('Informe o nome.');
       return;
     }
 
-    setSavingProfile(true);
+    const requestPayload = {
+      firstName,
+      lastName: profileForm.lastName.trim(),
+      phone: profileForm.phone.trim()
+    };
+
+    setSavingSettings(true);
     try {
       const response = await authFetch('/api/auth/me', {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          firstName,
-          lastName: profileForm.lastName.trim(),
-          phone: profileForm.phone.trim()
-        })
+        body: JSON.stringify(requestPayload)
       });
-      const payload = await response.json().catch(() => ({}));
+      const responsePayload = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(payload.error || 'Nao foi possivel salvar os dados da conta.');
+        throw new Error(responsePayload.error || 'Nao foi possivel salvar as configuracoes da conta.');
       }
 
       await onAuthRefresh?.();
-      showToast('Dados da conta atualizados.');
+      showToast('Configuracoes salvas.');
     } catch (error) {
       showToast(error.message);
     } finally {
-      setSavingProfile(false);
+      setSavingSettings(false);
     }
   }
 
@@ -210,6 +269,74 @@ export function AccountPage({ authUser, mode = 'profile', showToast = () => {}, 
     }
   }
 
+  async function deleteOwnAccount() {
+    if (deleteConfirmation.trim().toUpperCase() !== 'EXCLUIR') {
+      showToast('Digite EXCLUIR para confirmar.');
+      return;
+    }
+
+    if (!window.confirm('Excluir sua conta permanentemente?')) {
+      return;
+    }
+
+    setDeletingAccount(true);
+    try {
+      const response = await authFetch('/api/auth/me', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ confirmation: deleteConfirmation.trim() })
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(payload.error || 'Nao foi possivel excluir a conta.');
+      }
+
+      setDeleteConfirmation('');
+      if (onAccountDeleted) {
+        await onAccountDeleted();
+      } else {
+        showToast('Conta excluida.');
+      }
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      setDeletingAccount(false);
+    }
+  }
+
+  async function deleteAdminUser(user) {
+    if (!user?.id || user.id === currentUser.id) {
+      showToast('Use Excluir minha conta para remover sua propria conta.');
+      return;
+    }
+
+    if (!window.confirm(`Excluir a conta de ${user.name || user.email}?`)) {
+      return;
+    }
+
+    setDeletingAdminUserId(user.id);
+    try {
+      const response = await authFetch(`/api/admin/users/${encodeURIComponent(user.id)}`, {
+        method: 'DELETE'
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(payload.error || 'Nao foi possivel excluir o usuario.');
+      }
+
+      setAdminUsers((current) => current.filter((item) => item.id !== user.id));
+      showToast('Conta excluida.');
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      setDeletingAdminUserId('');
+    }
+  }
+
   return (
     <section className="mx-auto flex w-full max-w-[1080px] flex-col gap-5">
       <div className="tactical-dark-panel flex flex-col gap-5 px-6 py-6 sm:flex-row sm:items-center sm:justify-between">
@@ -235,7 +362,7 @@ export function AccountPage({ authUser, mode = 'profile', showToast = () => {}, 
         <div className="grid gap-5 lg:grid-cols-3">
           <article className="tactical-panel px-5 py-5 lg:col-span-2">
             <h2 className="text-lg font-black tracking-tight text-tactical-ink">Dados da conta</h2>
-            <form className="mt-4 grid gap-4 sm:grid-cols-2" onSubmit={saveProfile}>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
               <label className="block">
                 <span className="tactical-label">Nome</span>
                 <input
@@ -273,13 +400,55 @@ export function AccountPage({ authUser, mode = 'profile', showToast = () => {}, 
 
               <div className="sm:col-span-2">
                 <DetailRow label="Email" value={currentUser.email} />
-                <DetailRow label="Acesso" value={authUser?.globalAdmin ? 'Admin global' : currentUser.role || 'Usuario'} />
               </div>
+            </div>
 
-              <button type="submit" className="tactical-button sm:col-span-2" disabled={savingProfile}>
-                {savingProfile ? 'Salvando...' : 'Salvar dados'}
-              </button>
-            </form>
+            <div className="mt-6 border-t border-tactical-ink/10 pt-5">
+              <h2 className="text-lg font-black tracking-tight text-tactical-ink">Mudar senha</h2>
+              <form className="mt-4 grid gap-4 sm:grid-cols-2" onSubmit={savePassword}>
+                <label className="block sm:col-span-2">
+                  <span className="tactical-label">Senha atual</span>
+                  <input
+                    className="tactical-input"
+                    value={passwordForm.currentPassword}
+                    onChange={(event) => updatePasswordField('currentPassword', event.target.value)}
+                    type="password"
+                    autoComplete="current-password"
+                    required
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="tactical-label">Nova senha</span>
+                  <input
+                    className="tactical-input"
+                    value={passwordForm.newPassword}
+                    onChange={(event) => updatePasswordField('newPassword', event.target.value)}
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={8}
+                    required
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="tactical-label">Confirmar senha</span>
+                  <input
+                    className="tactical-input"
+                    value={passwordForm.confirmPassword}
+                    onChange={(event) => updatePasswordField('confirmPassword', event.target.value)}
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={8}
+                    required
+                  />
+                </label>
+
+                <button type="submit" className="tactical-button sm:col-span-2" disabled={savingPassword}>
+                  {savingPassword ? 'Salvando...' : 'Alterar senha'}
+                </button>
+              </form>
+            </div>
           </article>
 
           <article className="tactical-panel px-5 py-5">
@@ -312,63 +481,111 @@ export function AccountPage({ authUser, mode = 'profile', showToast = () => {}, 
             <p className="mt-3 text-xs font-semibold leading-5 text-tactical-ash">PNG, JPG ou WebP ate 900 KB.</p>
           </article>
 
-          <article className="tactical-panel px-5 py-5 lg:col-span-2">
-            <h2 className="text-lg font-black tracking-tight text-tactical-ink">Mudar senha</h2>
-            <form className="mt-4 grid gap-4 sm:grid-cols-2" onSubmit={savePassword}>
-              <label className="block sm:col-span-2">
-                <span className="tactical-label">Senha atual</span>
+          {authUser?.globalAdmin ? (
+            <article className="tactical-panel px-5 py-5 lg:col-span-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="text-lg font-black tracking-tight text-tactical-ink">Administracao de contas</h2>
+                <span className="rounded-full bg-tactical-pitch/10 px-3 py-1 text-xs font-black uppercase tracking-[0.12em] text-tactical-pitch">
+                  {adminUsers.length} usuarios
+                </span>
+              </div>
+
+              <label className="mt-4 block">
+                <span className="tactical-label">Buscar usuario</span>
                 <input
                   className="tactical-input"
-                  value={passwordForm.currentPassword}
-                  onChange={(event) => updatePasswordField('currentPassword', event.target.value)}
-                  type="password"
-                  autoComplete="current-password"
-                  required
+                  value={adminUserSearch}
+                  onChange={(event) => setAdminUserSearch(event.target.value)}
+                  placeholder="Nome, email ou clube"
                 />
               </label>
 
+              <div className="mt-4 grid gap-3">
+                {loadingAdminUsers ? (
+                  <div className="rounded-xl border border-dashed border-tactical-ink/15 px-4 py-6 text-center text-sm font-black uppercase tracking-[0.14em] text-tactical-ash">
+                    Carregando usuarios...
+                  </div>
+                ) : null}
+
+                {!loadingAdminUsers && !filteredAdminUsers.length ? (
+                  <div className="rounded-xl border border-dashed border-tactical-ink/15 px-4 py-6 text-center text-sm font-black uppercase tracking-[0.14em] text-tactical-ash">
+                    Nenhum usuario encontrado
+                  </div>
+                ) : null}
+
+                {filteredAdminUsers.map((user) => {
+                  const isCurrentUser = user.id === currentUser.id;
+                  return (
+                    <div
+                      key={user.id}
+                      className="grid gap-3 rounded-xl border border-tactical-ink/10 bg-white px-3 py-3 md:grid-cols-[minmax(0,1fr)_minmax(160px,0.45fr)_auto] md:items-center"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <strong className="truncate text-sm font-black text-tactical-ink">{user.name || user.email}</strong>
+                          {user.globalAdmin ? (
+                            <span className="rounded-full bg-tactical-ink px-2 py-1 text-[0.62rem] font-black uppercase tracking-[0.12em] text-white">
+                              Admin global
+                            </span>
+                          ) : null}
+                          {isCurrentUser ? (
+                            <span className="rounded-full bg-tactical-pitch/10 px-2 py-1 text-[0.62rem] font-black uppercase tracking-[0.12em] text-tactical-pitch">
+                              Sua conta
+                            </span>
+                          ) : null}
+                        </div>
+                        <span className="mt-1 block truncate text-xs font-semibold text-tactical-ash">{user.email}</span>
+                      </div>
+
+                      <span className="text-xs font-black uppercase tracking-[0.12em] text-tactical-ash">
+                        {user.teamMemberships?.length
+                          ? `${user.teamMemberships.length} clube${user.teamMemberships.length > 1 ? 's' : ''}`
+                          : 'Sem clube'}
+                      </span>
+
+                      <button
+                        type="button"
+                        className="h-10 rounded-xl border border-red-200 px-3 text-xs font-black uppercase tracking-[0.14em] text-red-700 transition hover:border-red-500 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-45"
+                        disabled={isCurrentUser || deletingAdminUserId === user.id}
+                        onClick={() => deleteAdminUser(user)}
+                      >
+                        {deletingAdminUserId === user.id ? 'Excluindo...' : 'Excluir'}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </article>
+          ) : null}
+
+          <article className="tactical-panel border border-red-200 px-5 py-5 lg:col-span-3">
+            <h2 className="text-lg font-black tracking-tight text-red-800">Excluir conta</h2>
+            <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
               <label className="block">
-                <span className="tactical-label">Nova senha</span>
+                <span className="tactical-label">Confirmacao</span>
                 <input
-                  className="tactical-input"
-                  value={passwordForm.newPassword}
-                  onChange={(event) => updatePasswordField('newPassword', event.target.value)}
-                  type="password"
-                  autoComplete="new-password"
-                  minLength={8}
-                  required
+                  className="tactical-input border-red-200 focus:border-red-500"
+                  value={deleteConfirmation}
+                  onChange={(event) => setDeleteConfirmation(event.target.value)}
+                  placeholder="Digite EXCLUIR"
                 />
               </label>
-
-              <label className="block">
-                <span className="tactical-label">Confirmar senha</span>
-                <input
-                  className="tactical-input"
-                  value={passwordForm.confirmPassword}
-                  onChange={(event) => updatePasswordField('confirmPassword', event.target.value)}
-                  type="password"
-                  autoComplete="new-password"
-                  minLength={8}
-                  required
-                />
-              </label>
-
-              <button type="submit" className="tactical-button sm:col-span-2" disabled={savingPassword}>
-                {savingPassword ? 'Salvando...' : 'Alterar senha'}
+              <button
+                type="button"
+                className="h-11 rounded-xl bg-red-700 px-4 text-xs font-black uppercase tracking-[0.16em] text-white transition hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-45"
+                disabled={deletingAccount || deleteConfirmation.trim().toUpperCase() !== 'EXCLUIR'}
+                onClick={deleteOwnAccount}
+              >
+                {deletingAccount ? 'Excluindo...' : 'Excluir minha conta'}
               </button>
-            </form>
+            </div>
           </article>
 
-          <article className="tactical-panel px-5 py-5">
-            <h2 className="text-lg font-black tracking-tight text-tactical-ink">Preferencias</h2>
-            <Link
-              to="/noticias"
-              className="mt-4 flex min-h-12 items-center justify-between rounded-xl border border-tactical-ink/10 px-3 text-sm font-black text-tactical-ink transition hover:border-tactical-pitch/35 hover:bg-tactical-pitch/10 hover:text-tactical-pitch"
-            >
-              Noticias
-              <Icon name="arrow-up-right" className="h-4 w-4" />
-            </Link>
-          </article>
+          <div className="flex justify-end lg:col-span-3">
+            <button type="button" className="tactical-button min-h-12 w-full sm:w-auto sm:min-w-[220px]" disabled={savingSettings} onClick={saveAccountSettings}>
+              {savingSettings ? 'Salvando...' : 'Salvar configuracoes'}
+            </button>
+          </div>
 
         </div>
       ) : (
@@ -380,7 +597,6 @@ export function AccountPage({ authUser, mode = 'profile', showToast = () => {}, 
               <DetailRow label="Sobrenome" value={currentUser.lastName} />
               <DetailRow label="Email" value={currentUser.email} />
               <DetailRow label="Numero de celular" value={currentUser.phone} />
-              <DetailRow label="Iniciais" value={currentUser.initials} />
             </div>
           </article>
 

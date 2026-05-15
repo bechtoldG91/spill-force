@@ -9,9 +9,9 @@ import { ClubManagePage } from './pages/ClubManagePage';
 import { UploadPage } from './pages/UploadPage';
 import { LibraryPage } from './pages/LibraryPage';
 import { AnalysisPage } from './pages/AnalysisPage';
-import { NewsPage } from './pages/NewsPage';
 import { LongCutPage } from './pages/LongCutPage';
 import { authFetch, clearAuthSession, readAuthSession, setAuthSession } from './lib/auth';
+import { canManageTeamSettings, isTeamManagerRole } from './lib/utils';
 
 function Toast({ message }) {
   return (
@@ -44,6 +44,7 @@ export default function App() {
   const [initialSession] = useState(() => readAuthSession());
   const [authUser, setAuthUser] = useState(() => initialSession?.user || null);
   const [authReady, setAuthReady] = useState(() => !initialSession?.token);
+  const [clubNotificationsCount, setClubNotificationsCount] = useState(0);
 
   const showToast = useCallback((message) => {
     setToast(String(message || ''));
@@ -124,6 +125,53 @@ export default function App() {
     return nextUser;
   }, []);
 
+  const refreshClubNotifications = useCallback(async (user = authUser) => {
+    if (!user) {
+      setClubNotificationsCount(0);
+      return 0;
+    }
+
+    try {
+      let teamsToCheck = [];
+
+      if (user.globalAdmin) {
+        const response = await authFetch('/api/teams');
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload.error || 'Nao foi possivel carregar notificacoes.');
+        }
+        teamsToCheck = (payload.teams || []).map((team) => ({ teamId: team.id, role: 'admin' }));
+      } else {
+        teamsToCheck = (user.teamMemberships || []).filter((membership) => isTeamManagerRole(membership.role));
+      }
+
+      const counts = await Promise.all(
+        teamsToCheck.map(async (membership) => {
+          let total = 0;
+
+          const roleResponse = await authFetch(`/api/teams/${encodeURIComponent(membership.teamId)}/role-change-requests`);
+          const rolePayload = await roleResponse.json().catch(() => ({}));
+          if (roleResponse.ok) {
+            total += (rolePayload.requests || []).length;
+          }
+
+          return total;
+        })
+      );
+
+      const nextCount = counts.reduce((sum, count) => sum + count, 0);
+      setClubNotificationsCount(nextCount);
+      return nextCount;
+    } catch {
+      setClubNotificationsCount(0);
+      return 0;
+    }
+  }, [authUser]);
+
+  useEffect(() => {
+    refreshClubNotifications();
+  }, [refreshClubNotifications]);
+
   const handleLogin = useCallback(async ({ email, password }) => {
     const response = await authFetch('/api/auth/login', {
       method: 'POST',
@@ -144,13 +192,13 @@ export default function App() {
     showToast('Login realizado.');
   }, [showToast]);
 
-  const handleRegister = useCallback(async ({ name, email, password }) => {
+  const handleRegister = useCallback(async ({ name, email, password, inviteCode }) => {
     const response = await authFetch('/api/auth/register', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ name, email, password })
+      body: JSON.stringify({ name, email, password, inviteCode })
     });
     const payload = await response.json().catch(() => ({}));
 
@@ -164,6 +212,44 @@ export default function App() {
     showToast('Conta criada.');
   }, [showToast]);
 
+  const handleForgotPassword = useCallback(async ({ email }) => {
+    const response = await authFetch('/api/auth/forgot-password', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ email })
+    });
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(payload.error || 'Nao foi possivel gerar o codigo.');
+    }
+
+    showToast('Codigo de recuperacao gerado.');
+    return payload;
+  }, [showToast]);
+
+  const handleResetPassword = useCallback(async ({ email, code, password }) => {
+    const response = await authFetch('/api/auth/reset-password', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ email, code, password })
+    });
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(payload.error || 'Nao foi possivel redefinir a senha.');
+    }
+
+    setAuthSession(payload);
+    setAuthUser(payload.user);
+    setAuthReady(true);
+    showToast('Senha redefinida.');
+  }, [showToast]);
+
   const handleLogout = useCallback(async () => {
     try {
       await authFetch('/api/auth/logout', { method: 'POST' });
@@ -173,6 +259,14 @@ export default function App() {
       setAuthReady(true);
       showToast('Logout realizado.');
     }
+  }, [showToast]);
+
+  const handleAccountDeleted = useCallback(() => {
+    clearAuthSession();
+    setAuthUser(null);
+    setAuthReady(true);
+    setClubNotificationsCount(0);
+    showToast('Conta excluida.');
   }, [showToast]);
 
   if (!authReady) {
@@ -188,10 +282,48 @@ export default function App() {
     return (
       <>
         <Routes>
-          <Route path="/novousuario" element={<AuthPage mode="login" onLogin={handleLogin} onRegister={handleRegister} showToast={showToast} />} />
+          <Route
+            path="/novousuario"
+            element={
+              <AuthPage
+                mode="login"
+                onLogin={handleLogin}
+                onRegister={handleRegister}
+                onForgotPassword={handleForgotPassword}
+                onResetPassword={handleResetPassword}
+                showToast={showToast}
+              />
+            }
+          />
           <Route path="/novousuario.html" element={<Navigate to="/novousuario" replace />} />
-          <Route path="/cadastro" element={<AuthPage mode="register" onLogin={handleLogin} onRegister={handleRegister} showToast={showToast} />} />
+          <Route
+            path="/cadastro"
+            element={
+              <AuthPage
+                mode="register"
+                onLogin={handleLogin}
+                onRegister={handleRegister}
+                onForgotPassword={handleForgotPassword}
+                onResetPassword={handleResetPassword}
+                showToast={showToast}
+              />
+            }
+          />
           <Route path="/cadastro.html" element={<Navigate to="/cadastro" replace />} />
+          <Route
+            path="/recuperar-senha"
+            element={
+              <AuthPage
+                mode="forgot"
+                onLogin={handleLogin}
+                onRegister={handleRegister}
+                onForgotPassword={handleForgotPassword}
+                onResetPassword={handleResetPassword}
+                showToast={showToast}
+              />
+            }
+          />
+          <Route path="/recuperar-senha.html" element={<Navigate to="/recuperar-senha" replace />} />
           <Route path="/conta" element={<Navigate to="/novousuario" replace />} />
           <Route path="/conta.html" element={<Navigate to="/novousuario" replace />} />
           <Route path="*" element={<Navigate to="/novousuario" replace />} />
@@ -202,6 +334,11 @@ export default function App() {
     );
   }
 
+  const hasTeamMemberships = Boolean((authUser.teamMemberships || []).length);
+  const canCreateContent = canManageTeamSettings(authUser);
+  const canAccessTeamContent = Boolean(authUser.globalAdmin || hasTeamMemberships);
+  const canManageClub = canManageTeamSettings(authUser);
+
   return (
     <>
       <Routes>
@@ -211,40 +348,82 @@ export default function App() {
             <AppShell
               authUser={authUser}
               onLogout={handleLogout}
+              clubNotificationsCount={clubNotificationsCount}
             >
               <Routes key={authUser?.id || 'legacy'}>
-                <Route path="/" element={<HomePage showToast={showToast} authUser={authUser} />} />
+                <Route
+                  path="/"
+                  element={
+                    hasTeamMemberships || authUser.globalAdmin ? (
+                      <HomePage showToast={showToast} authUser={authUser} clubNotificationsCount={clubNotificationsCount} />
+                    ) : (
+                      <Navigate to="/time" replace />
+                    )
+                  }
+                />
                 <Route path="/index.html" element={<Navigate to="/" replace />} />
                 <Route path="/novousuario" element={<Navigate to="/" replace />} />
                 <Route path="/novousuario.html" element={<Navigate to="/" replace />} />
                 <Route path="/cadastro" element={<Navigate to="/" replace />} />
                 <Route path="/cadastro.html" element={<Navigate to="/" replace />} />
-                <Route path="/conta" element={<Navigate to="/" replace />} />
-                <Route path="/conta.html" element={<Navigate to="/" replace />} />
-                <Route path="/perfil" element={<AccountPage authUser={authUser} mode="profile" showToast={showToast} onAuthRefresh={refreshAuthUser} />} />
-                <Route path="/perfil.html" element={<Navigate to="/perfil" replace />} />
+                <Route path="/recuperar-senha" element={<Navigate to="/" replace />} />
+                <Route path="/recuperar-senha.html" element={<Navigate to="/" replace />} />
+                <Route path="/conta" element={<Navigate to="/configuracoes-da-conta" replace />} />
+                <Route path="/conta.html" element={<Navigate to="/configuracoes-da-conta" replace />} />
+                <Route path="/perfil" element={<Navigate to="/configuracoes-da-conta" replace />} />
+                <Route path="/perfil.html" element={<Navigate to="/configuracoes-da-conta" replace />} />
                 <Route
                   path="/configuracoes-da-conta"
-                  element={<AccountPage authUser={authUser} mode="settings" showToast={showToast} onAuthRefresh={refreshAuthUser} />}
+                  element={
+                    <AccountPage
+                      authUser={authUser}
+                      mode="settings"
+                      showToast={showToast}
+                      onAuthRefresh={refreshAuthUser}
+                      onAccountDeleted={handleAccountDeleted}
+                    />
+                  }
                 />
                 <Route path="/configuracoes-da-conta.html" element={<Navigate to="/configuracoes-da-conta" replace />} />
-                <Route path="/time" element={<TeamPage showToast={showToast} authUser={authUser} onAuthRefresh={refreshAuthUser} />} />
+                <Route
+                  path="/time"
+                  element={
+                    <TeamPage
+                      showToast={showToast}
+                      authUser={authUser}
+                      onAuthRefresh={refreshAuthUser}
+                      clubNotificationsCount={clubNotificationsCount}
+                    />
+                  }
+                />
                 <Route path="/time.html" element={<Navigate to="/time" replace />} />
-                <Route path="/club-manage" element={<ClubManagePage showToast={showToast} authUser={authUser} />} />
+                <Route
+                  path="/club-manage"
+                  element={
+                    canManageClub ? (
+                      <ClubManagePage
+                        showToast={showToast}
+                        authUser={authUser}
+                        onAuthRefresh={refreshAuthUser}
+                        onNotificationsRefresh={refreshClubNotifications}
+                      />
+                    ) : (
+                      <Navigate to="/time" replace />
+                    )
+                  }
+                />
                 <Route path="/club-manage.html" element={<Navigate to="/club-manage" replace />} />
                 <Route path="/times" element={<Navigate to="/time" replace />} />
                 <Route path="/times.html" element={<Navigate to="/time" replace />} />
                 <Route path="/times/:teamId" element={<Navigate to="/time" replace />} />
-                <Route path="/upload" element={<UploadPage showToast={showToast} />} />
+                <Route path="/upload" element={canCreateContent ? <UploadPage showToast={showToast} /> : <Navigate to="/biblioteca" replace />} />
                 <Route path="/upload.html" element={<Navigate to="/upload" replace />} />
-                <Route path="/biblioteca" element={<LibraryPage showToast={showToast} />} />
+                <Route path="/biblioteca" element={canAccessTeamContent ? <LibraryPage showToast={showToast} /> : <Navigate to="/time" replace />} />
                 <Route path="/biblioteca.html" element={<Navigate to="/biblioteca" replace />} />
-                <Route path="/corte-longo" element={<LongCutPage showToast={showToast} />} />
+                <Route path="/corte-longo" element={canAccessTeamContent ? <LongCutPage showToast={showToast} /> : <Navigate to="/time" replace />} />
                 <Route path="/corte-longo.html" element={<Navigate to="/corte-longo" replace />} />
-                <Route path="/analise" element={<AnalysisPage showToast={showToast} />} />
+                <Route path="/analise" element={canAccessTeamContent ? <AnalysisPage showToast={showToast} /> : <Navigate to="/time" replace />} />
                 <Route path="/analise.html" element={<Navigate to="/analise" replace />} />
-                <Route path="/noticias" element={<NewsPage showToast={showToast} authUser={authUser} />} />
-                <Route path="/noticias.html" element={<Navigate to="/noticias" replace />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </AppShell>

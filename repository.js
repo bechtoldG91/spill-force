@@ -13,6 +13,10 @@ function createJsonRepository({
   writeTeams,
   legacyOwnerId
 }) {
+  function normalizeEmail(value) {
+    return String(value || '').trim().toLowerCase();
+  }
+
   function ownsRecord(record, ownerId, teamId) {
     if (teamId) {
       return record?.teamId === teamId;
@@ -213,8 +217,8 @@ function createJsonRepository({
 
     async findUserByEmail(email) {
       const users = await readUsers();
-      const normalizedEmail = String(email || '').toLowerCase();
-      return users.find((user) => user.email === normalizedEmail) || null;
+      const normalizedEmail = normalizeEmail(email);
+      return users.find((user) => normalizeEmail(user.email) === normalizedEmail) || null;
     },
 
     async findUserById(id) {
@@ -241,6 +245,19 @@ function createJsonRepository({
       users[index] = nextUser;
       await writeUsers(users);
       return nextUser;
+    },
+
+    async deleteUser(id) {
+      const users = await readUsers();
+      const index = users.findIndex((user) => user.id === id);
+
+      if (index === -1) {
+        return null;
+      }
+
+      const [user] = users.splice(index, 1);
+      await writeUsers(users);
+      return user;
     },
 
     async listTeams() {

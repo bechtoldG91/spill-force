@@ -6,7 +6,7 @@ import { formatDate, formatDuration } from '../lib/utils';
 import { Icon } from '../components/Icons';
 import { UserAvatar } from '../components/UserAvatar';
 
-export function HomePage({ showToast, authUser }) {
+export function HomePage({ showToast, authUser, clubNotificationsCount = 0 }) {
   const currentUser = authUser || APP_USER;
   const [videos, setVideos] = useState([]);
   const [userTeams, setUserTeams] = useState([]);
@@ -61,13 +61,9 @@ export function HomePage({ showToast, authUser }) {
       {
         label: 'Videos',
         value: uploadedByUser.length
-      },
-      {
-        label: 'Times',
-        value: authUser ? userTeams.length : APP_USER.teams.length
       }
     ],
-    [authUser, uploadedByUser, userTeams.length]
+    [uploadedByUser]
   );
 
   useEffect(() => {
@@ -152,6 +148,12 @@ export function HomePage({ showToast, authUser }) {
   }
 
   const displayedTeams = authUser ? userTeams : APP_USER.teams;
+  const isAthleteUser = Boolean(
+    authUser &&
+      !authUser.globalAdmin &&
+      (authUser.teamMemberships || []).length &&
+      (authUser.teamMemberships || []).every((membership) => membership.role === 'atleta')
+  );
 
   return (
     <section className="mx-auto grid w-full max-w-[1180px] gap-5 lg:grid-cols-[260px_minmax(0,1fr)] xl:grid-cols-[280px_minmax(0,1fr)]">
@@ -167,14 +169,16 @@ export function HomePage({ showToast, authUser }) {
             </div>
           </div>
 
-          <div className="grid grid-cols-3 border-t border-tactical-ink/10">
-            {profileStats.map((stat) => (
-              <div key={stat.label} className="px-3 py-4 text-center">
-                <strong className="block text-2xl font-black text-tactical-ink">{stat.value}</strong>
-                <span className="mt-1 block text-sm text-tactical-ash">{stat.label}</span>
-              </div>
-            ))}
-          </div>
+          {!isAthleteUser ? (
+            <div className="grid grid-cols-2 border-t border-tactical-ink/10">
+              {profileStats.map((stat) => (
+                <div key={stat.label} className="px-3 py-4 text-center">
+                  <strong className="block text-2xl font-black text-tactical-ink">{stat.value}</strong>
+                  <span className="mt-1 block text-sm text-tactical-ash">{stat.label}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </article>
 
         <article className="tactical-panel mt-4 px-5 py-5">
@@ -200,6 +204,17 @@ export function HomePage({ showToast, authUser }) {
               </div>
             ))}
 
+            {isAthleteUser && displayedTeams.length ? (
+              <div className="grid grid-cols-2 border-t border-tactical-ink/10 pt-4">
+                {profileStats.map((stat) => (
+                  <div key={stat.label} className="text-center">
+                    <strong className="block text-2xl font-black text-tactical-ink">{stat.value}</strong>
+                    <span className="mt-1 block text-sm text-tactical-ash">{stat.label}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
             {!displayedTeams.length ? (
               <div className="rounded-xl border border-dashed border-tactical-ink/15 px-4 py-6 text-center">
                 <strong className="text-xs font-black uppercase tracking-[0.16em] text-tactical-ash">
@@ -212,6 +227,23 @@ export function HomePage({ showToast, authUser }) {
       </aside>
 
       <div className="flex w-full min-w-0 flex-col gap-5">
+        {clubNotificationsCount > 0 ? (
+          <Link
+            to="/club-manage"
+            className="tactical-panel flex flex-col gap-4 border-tactical-pitch/25 px-5 py-5 transition hover:border-tactical-pitch/50 hover:bg-tactical-pitch/5 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div className="min-w-0">
+              <span className="tactical-label mb-1 text-tactical-pitch">Solicitacoes pendentes</span>
+              <strong className="block text-xl font-black tracking-tight text-tactical-ink">
+                {clubNotificationsCount} {clubNotificationsCount === 1 ? 'item precisa' : 'itens precisam'} de avaliacao
+              </strong>
+            </div>
+            <span className="inline-flex min-h-11 items-center justify-center rounded-xl bg-tactical-ink px-4 text-xs font-black uppercase tracking-[0.14em] text-white">
+              Abrir configuracoes
+            </span>
+          </Link>
+        ) : null}
+
         {loading ? (
           <div className="tactical-panel px-6 py-10 text-sm font-semibold uppercase tracking-[0.18em] text-tactical-ash">
             Carregando feed...

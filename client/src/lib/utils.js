@@ -6,6 +6,34 @@ export function normalizeText(value) {
   return String(value || '').toLocaleLowerCase('pt-BR');
 }
 
+export function normalizeRole(value) {
+  return normalizeText(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+}
+
+export function hasAnyTeamRole(user, roles = []) {
+  if (user?.globalAdmin) {
+    return true;
+  }
+
+  const allowedRoles = new Set((Array.isArray(roles) ? roles : [roles]).map(normalizeRole).filter(Boolean));
+  if (!allowedRoles.size) {
+    return true;
+  }
+
+  return (user?.teamMemberships || []).some((membership) => allowedRoles.has(normalizeRole(membership.role)));
+}
+
+export function isTeamManagerRole(role) {
+  return ['admin', 'treinador'].includes(normalizeRole(role));
+}
+
+export function canManageTeamSettings(user) {
+  return Boolean(user?.globalAdmin || (user?.teamMemberships || []).some((membership) => isTeamManagerRole(membership.role)));
+}
+
 export function formatDate(value) {
   return new Intl.DateTimeFormat('pt-BR', {
     day: '2-digit',

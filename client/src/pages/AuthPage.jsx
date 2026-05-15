@@ -1,34 +1,70 @@
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useEffect, useState } from 'react';
+import { Icon } from '../components/Icons';
 import authHeroImage from '../assets/spill-force-auth.png';
 
 const EMPTY_FORM = {
   name: '',
   email: '',
-  password: ''
+  password: '',
+  code: '',
+  inviteCode: '',
+  confirmPassword: ''
 };
 
-export function AuthPage({ mode = 'login', onLogin, onRegister, showToast }) {
+export function AuthPage({ mode = 'login', onLogin, onRegister, onForgotPassword, onResetPassword, showToast }) {
+  const [searchParams] = useSearchParams();
   const [form, setForm] = useState(EMPTY_FORM);
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [resetRequested, setResetRequested] = useState(false);
+  const [resetCode, setResetCode] = useState('');
 
   const isRegister = mode === 'register';
+  const isForgot = mode === 'forgot';
+  const inviteCodeFromUrl = isRegister ? searchParams.get('convite') || searchParams.get('invite') || '' : '';
 
   useEffect(() => {
-    setForm(EMPTY_FORM);
-  }, [mode]);
+    setForm({
+      ...EMPTY_FORM,
+      inviteCode: inviteCodeFromUrl
+    });
+    setShowPassword(false);
+    setResetRequested(false);
+    setResetCode('');
+  }, [inviteCodeFromUrl, mode]);
 
   async function handleSubmit(event) {
     event.preventDefault();
     setLoading(true);
 
     try {
-      if (isRegister) {
+      if (isForgot && !resetRequested) {
+        const payload = await onForgotPassword({ email: form.email });
+        const nextCode = String(payload?.resetCode || '');
+        setResetCode(nextCode);
+        setForm((current) => ({ ...current, code: nextCode }));
+        setResetRequested(true);
+        return;
+      }
+
+      if (isForgot) {
+        if (form.password !== form.confirmPassword) {
+          throw new Error('A confirmacao da senha nao confere.');
+        }
+        await onResetPassword({
+          email: form.email,
+          code: form.code,
+          password: form.password
+        });
+      } else if (isRegister) {
         await onRegister(form);
       } else {
         await onLogin(form);
       }
       setForm(EMPTY_FORM);
+      setResetRequested(false);
+      setResetCode('');
     } catch (error) {
       showToast(error.message);
     } finally {
@@ -70,25 +106,41 @@ export function AuthPage({ mode = 'login', onLogin, onRegister, showToast }) {
 
         <section className="tactical-panel px-4 py-4 sm:px-5 sm:py-5">
           <div>
-            <span className="tactical-label">{isRegister ? 'Novo usuario' : 'Acesso'}</span>
+            <span className="tactical-label">{isRegister ? 'Novo usuario' : isForgot ? 'Recuperacao' : 'Acesso'}</span>
             <h1 className="text-2xl font-black tracking-tight text-tactical-ink">
-              {isRegister ? 'Criar conta' : 'Entrar'}
+              {isRegister ? 'Criar conta' : isForgot ? 'Redefinir senha' : 'Entrar'}
             </h1>
           </div>
 
           <form className="mt-5 space-y-4" onSubmit={handleSubmit}>
             {isRegister ? (
-              <label className="block">
-                <span className="tactical-label">Nome</span>
-                <input
-                  className="tactical-input"
-                  value={form.name}
-                  onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-                  placeholder="Nome completo"
-                  autoComplete="name"
-                  maxLength={120}
-                />
-              </label>
+              <>
+                <label className="block">
+                  <span className="tactical-label">Nome</span>
+                  <input
+                    className="tactical-input"
+                    value={form.name}
+                    onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+                    placeholder="Nome completo"
+                    autoComplete="name"
+                    maxLength={120}
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="tactical-label">Codigo do convite</span>
+                  <input
+                    className="tactical-input"
+                    value={form.inviteCode}
+                    onChange={(event) => setForm((current) => ({ ...current, inviteCode: event.target.value.trim() }))}
+                    placeholder="Codigo enviado pelo clube"
+                    autoComplete="one-time-code"
+                    maxLength={120}
+                    required
+                  />
+                </label>
+
+              </>
             ) : null}
 
             <label className="block">
@@ -101,43 +153,133 @@ export function AuthPage({ mode = 'login', onLogin, onRegister, showToast }) {
                 type="email"
                 autoComplete="email"
                 maxLength={160}
+                disabled={isForgot && resetRequested}
                 required
               />
             </label>
 
-            <label className="block">
-              <span className="tactical-label">Senha</span>
-              <input
-                className="tactical-input"
-                value={form.password}
-                onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
-                placeholder={isRegister ? 'Minimo de 8 caracteres' : 'Sua senha'}
-                type="password"
-                autoComplete={isRegister ? 'new-password' : 'current-password'}
-                minLength={isRegister ? 8 : undefined}
-                required
-              />
-            </label>
+            {isForgot && resetRequested ? (
+              <div className="rounded-xl border border-tactical-pitch/25 bg-tactical-pitch/10 px-3 py-3 text-sm font-semibold text-tactical-ink">
+                {resetCode ? (
+                  <>
+                    <span className="block text-xs font-black uppercase tracking-[0.16em] text-tactical-pitch">Codigo temporario</span>
+                    <strong className="mt-1 block text-2xl font-black tracking-[0.24em] text-tactical-ink">{resetCode}</strong>
+                  </>
+                ) : (
+                  <span>Se este email existir, use o codigo recebido para criar uma nova senha.</span>
+                )}
+                <span className="mt-2 block text-xs font-semibold text-tactical-ash">O codigo expira em 15 minutos.</span>
+                <button
+                  type="button"
+                  className="mt-3 text-xs font-black uppercase tracking-[0.14em] text-tactical-pitch hover:text-tactical-ink"
+                  onClick={() => {
+                    setResetRequested(false);
+                    setResetCode('');
+                    setForm((current) => ({ ...current, code: '', password: '', confirmPassword: '' }));
+                  }}
+                >
+                  Trocar email
+                </button>
+              </div>
+            ) : null}
+
+            {!isForgot || resetRequested ? (
+              <>
+                {isForgot ? (
+                  <label className="block">
+                    <span className="tactical-label">Codigo</span>
+                    <input
+                      className="tactical-input"
+                      value={form.code}
+                      onChange={(event) => setForm((current) => ({ ...current, code: event.target.value.replace(/\D/g, '').slice(0, 6) }))}
+                      inputMode="numeric"
+                      maxLength={6}
+                      required
+                    />
+                  </label>
+                ) : null}
+
+                <label className="block">
+                  <span className="tactical-label">{isForgot ? 'Nova senha' : 'Senha'}</span>
+                  <div className="relative">
+                    <input
+                      className="tactical-input pr-14"
+                      value={form.password}
+                      onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
+                      placeholder={isRegister || isForgot ? 'Minimo de 8 caracteres' : 'Sua senha'}
+                      type={showPassword ? 'text' : 'password'}
+                      autoComplete={isRegister || isForgot ? 'new-password' : 'current-password'}
+                      minLength={isRegister || isForgot ? 8 : undefined}
+                      required
+                    />
+                    <button
+                      type="button"
+                      className="absolute right-3 top-1/2 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-xl text-tactical-ash transition hover:bg-tactical-pitch/10 hover:text-tactical-pitch focus:outline-none focus:ring-2 focus:ring-tactical-pitch/35"
+                      onClick={() => setShowPassword((current) => !current)}
+                      aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                      title={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                    >
+                      <Icon name={showPassword ? 'eye-off' : 'eye'} className="h-5 w-5" />
+                    </button>
+                  </div>
+                </label>
+
+                {isForgot ? (
+                  <label className="block">
+                    <span className="tactical-label">Confirmar senha</span>
+                    <input
+                      className="tactical-input"
+                      value={form.confirmPassword}
+                      onChange={(event) => setForm((current) => ({ ...current, confirmPassword: event.target.value }))}
+                      type={showPassword ? 'text' : 'password'}
+                      autoComplete="new-password"
+                      minLength={8}
+                      required
+                    />
+                  </label>
+                ) : null}
+              </>
+            ) : null}
 
             <button type="submit" className="tactical-button min-h-[52px] w-full" disabled={loading}>
-              {loading ? 'Aguarde...' : isRegister ? 'Criar conta' : 'Entrar'}
+              {loading ? 'Aguarde...' : isRegister ? 'Criar conta' : isForgot && !resetRequested ? 'Gerar codigo' : isForgot ? 'Redefinir senha' : 'Entrar'}
             </button>
           </form>
 
-          <Link
-            to={isRegister ? '/novousuario' : '/cadastro'}
-            className="mt-4 block rounded-xl border border-tactical-ink/10 bg-tactical-bone px-3 py-3 text-center text-sm font-semibold text-tactical-ash transition hover:border-tactical-pitch/35 hover:bg-tactical-pitch/10 hover:text-tactical-ink"
-          >
-            {isRegister ? (
-              <>
-                Ja tem conta? <strong className="font-black text-tactical-pitch">Entrar</strong>
-              </>
-            ) : (
-              <>
-                Usuario novo? <strong className="font-black text-tactical-pitch">Criar conta</strong>
-              </>
-            )}
-          </Link>
+          {isForgot ? (
+            <Link
+              to="/novousuario"
+              className="mt-4 block rounded-xl border border-tactical-ink/10 bg-tactical-bone px-3 py-3 text-center text-sm font-semibold text-tactical-ash transition hover:border-tactical-pitch/35 hover:bg-tactical-pitch/10 hover:text-tactical-ink"
+            >
+              Voltar para <strong className="font-black text-tactical-pitch">login</strong>
+            </Link>
+          ) : (
+            <>
+              {!isRegister ? (
+                <Link
+                  to="/recuperar-senha"
+                  className="mt-3 block text-center text-xs font-black uppercase tracking-[0.14em] text-tactical-pitch transition hover:text-tactical-ink"
+                >
+                  Esqueci minha senha
+                </Link>
+              ) : null}
+
+              <Link
+                to={isRegister ? '/novousuario' : '/cadastro'}
+                className="mt-4 block rounded-xl border border-tactical-ink/10 bg-tactical-bone px-3 py-3 text-center text-sm font-semibold text-tactical-ash transition hover:border-tactical-pitch/35 hover:bg-tactical-pitch/10 hover:text-tactical-ink"
+              >
+                {isRegister ? (
+                  <>
+                    Ja tem conta? <strong className="font-black text-tactical-pitch">Entrar</strong>
+                  </>
+                ) : (
+                  <>
+                    <strong className="font-black text-tactical-pitch">Criar conta com convite</strong>
+                  </>
+                )}
+              </Link>
+            </>
+          )}
         </section>
       </main>
     </div>

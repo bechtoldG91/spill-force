@@ -109,7 +109,7 @@ async function handleCreateVideo(req, res, requestUrl) {
         team: safeText(params.get('team'), 120) || 'Sem equipe',
         athlete: safeText(params.get('athlete'), 120),
         kind: safeText(params.get('kind'), 40) || 'jogo',
-        uploader: user.legacy ? safeText(params.get('uploader'), 120) || 'Equipe tecnica' : user.name,
+        uploader: user.name,
         tags: parseTags(params.get('tags')),
         notes: safeText(params.get('notes'), 500),
         visibility: safeText(params.get('visibility'), 40) || 'equipe',

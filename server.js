@@ -4,9 +4,23 @@ validateConfig();
 
 const http = require('node:http');
 const { jsonResponse, methodNotAllowed } = require('./storage');
-const { handleSearchNews } = require('./news');
-const { handleGetAccountPreferences, handleUpdateAccountPreferences } = require('./account');
-const { handleListTeams, handleCreateTeam, handleGetTeam, handleUpdateTeam, handleListTeamMembers, handleUpdateTeamMember } = require('./teams');
+const {
+  handleListTeams,
+  handleCreateTeam,
+  handleGetTeam,
+  handleUpdateTeam,
+  handleDeleteTeam,
+  handleLeaveTeam,
+  handleListTeamInvites,
+  handleCreateTeamInvite,
+  handleDeleteTeamInvite,
+  handleCreateTeamRoleChangeRequest,
+  handleListTeamRoleChangeRequests,
+  handleApproveTeamRoleChangeRequest,
+  handleListTeamMembers,
+  handleUpdateTeamMember,
+  handleUpdateOwnTeamMembership
+} = require('./teams');
 const { handleListPlaylists, handleCreatePlaylist, handleDeletePlaylist } = require('./playlists');
 const {
   handleListVideos,
@@ -18,7 +32,18 @@ const {
 } = require('./videos');
 const { handleGetAnnotations, handlePutAnnotations } = require('./annotations');
 const { serveVideo, serveStatic } = require('./static');
-const { handleRegister, handleLogin, handleLogout, handleMe, handleUpdateMe } = require('./auth');
+const {
+  handleRegister,
+  handleLogin,
+  handleForgotPassword,
+  handleResetPassword,
+  handleLogout,
+  handleMe,
+  handleUpdateMe,
+  handleDeleteMe,
+  handleListAdminUsers,
+  handleDeleteAdminUser
+} = require('./auth');
 
 async function route(req, res) {
   const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
@@ -36,6 +61,24 @@ async function route(req, res) {
   if (pathname === '/api/auth/login') {
     if (req.method === 'POST') {
       await handleLogin(req, res);
+      return;
+    }
+    methodNotAllowed(res);
+    return;
+  }
+
+  if (pathname === '/api/auth/forgot-password') {
+    if (req.method === 'POST') {
+      await handleForgotPassword(req, res);
+      return;
+    }
+    methodNotAllowed(res);
+    return;
+  }
+
+  if (pathname === '/api/auth/reset-password') {
+    if (req.method === 'POST') {
+      await handleResetPassword(req, res);
       return;
     }
     methodNotAllowed(res);
@@ -60,26 +103,27 @@ async function route(req, res) {
       await handleUpdateMe(req, res);
       return;
     }
-    methodNotAllowed(res);
-    return;
-  }
-
-  if (pathname === '/api/news') {
-    if (req.method === 'GET') {
-      await handleSearchNews(req, res, requestUrl);
+    if (req.method === 'DELETE') {
+      await handleDeleteMe(req, res);
       return;
     }
     methodNotAllowed(res);
     return;
   }
 
-  if (pathname === '/api/account/preferences') {
+  if (pathname === '/api/admin/users') {
     if (req.method === 'GET') {
-      await handleGetAccountPreferences(req, res);
+      await handleListAdminUsers(req, res);
       return;
     }
-    if (req.method === 'PATCH') {
-      await handleUpdateAccountPreferences(req, res);
+    methodNotAllowed(res);
+    return;
+  }
+
+  const adminUserMatch = /^\/api\/admin\/users\/([^/]+)$/.exec(pathname);
+  if (adminUserMatch) {
+    if (req.method === 'DELETE') {
+      await handleDeleteAdminUser(req, res, adminUserMatch[1]);
       return;
     }
     methodNotAllowed(res);
@@ -109,6 +153,74 @@ async function route(req, res) {
     return;
   }
 
+  const teamInvitesMatch = /^\/api\/teams\/([^/]+)\/invites$/.exec(pathname);
+  if (teamInvitesMatch) {
+    if (req.method === 'GET') {
+      await handleListTeamInvites(req, res, teamInvitesMatch[1]);
+      return;
+    }
+    if (req.method === 'POST') {
+      await handleCreateTeamInvite(req, res, teamInvitesMatch[1]);
+      return;
+    }
+    methodNotAllowed(res);
+    return;
+  }
+
+  const teamInviteMatch = /^\/api\/teams\/([^/]+)\/invites\/([^/]+)$/.exec(pathname);
+  if (teamInviteMatch) {
+    if (req.method === 'DELETE') {
+      await handleDeleteTeamInvite(req, res, teamInviteMatch[1], teamInviteMatch[2]);
+      return;
+    }
+    methodNotAllowed(res);
+    return;
+  }
+
+  const teamRoleChangeRequestsMatch = /^\/api\/teams\/([^/]+)\/role-change-requests$/.exec(pathname);
+  if (teamRoleChangeRequestsMatch) {
+    if (req.method === 'GET') {
+      await handleListTeamRoleChangeRequests(req, res, teamRoleChangeRequestsMatch[1]);
+      return;
+    }
+    if (req.method === 'POST') {
+      await handleCreateTeamRoleChangeRequest(req, res, teamRoleChangeRequestsMatch[1]);
+      return;
+    }
+    methodNotAllowed(res);
+    return;
+  }
+
+  const teamRoleChangeApproveMatch = /^\/api\/teams\/([^/]+)\/role-change-requests\/([^/]+)\/approve$/.exec(pathname);
+  if (teamRoleChangeApproveMatch) {
+    if (req.method === 'POST') {
+      await handleApproveTeamRoleChangeRequest(req, res, teamRoleChangeApproveMatch[1], teamRoleChangeApproveMatch[2]);
+      return;
+    }
+    methodNotAllowed(res);
+    return;
+  }
+
+  const teamLeaveMatch = /^\/api\/teams\/([^/]+)\/leave$/.exec(pathname);
+  if (teamLeaveMatch) {
+    if (req.method === 'DELETE') {
+      await handleLeaveTeam(req, res, teamLeaveMatch[1]);
+      return;
+    }
+    methodNotAllowed(res);
+    return;
+  }
+
+  const teamOwnMembershipMatch = /^\/api\/teams\/([^/]+)\/my-membership$/.exec(pathname);
+  if (teamOwnMembershipMatch) {
+    if (req.method === 'PATCH') {
+      await handleUpdateOwnTeamMembership(req, res, teamOwnMembershipMatch[1]);
+      return;
+    }
+    methodNotAllowed(res);
+    return;
+  }
+
   const teamMemberMatch = /^\/api\/teams\/([^/]+)\/members\/([^/]+)$/.exec(pathname);
   if (teamMemberMatch) {
     if (req.method === 'PATCH') {
@@ -127,6 +239,10 @@ async function route(req, res) {
     }
     if (req.method === 'PATCH') {
       await handleUpdateTeam(req, res, teamDetailsMatch[1]);
+      return;
+    }
+    if (req.method === 'DELETE') {
+      await handleDeleteTeam(req, res, teamDetailsMatch[1]);
       return;
     }
     methodNotAllowed(res);

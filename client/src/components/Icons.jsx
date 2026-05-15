@@ -33,12 +33,6 @@ export function Icon({ name, className = '' }) {
           <rect x="14" y="14" width="6" height="6" />
         </svg>
       );
-    case 'news':
-      return (
-        <svg viewBox="0 -960 960 960" className={className} fill="currentColor" aria-hidden="true">
-          <path d="M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h440l200 200v440q0 33-23.5 56.5T760-120H200Zm0-80h560v-400H600v-160H200v560Zm80-80h400v-80H280v80Zm0-320h200v-80H280v80Zm0 160h400v-80H280v80Zm-80-320v160-160 560-560Z" />
-        </svg>
-      );
     case 'analysis':
       return (
         <svg viewBox="0 -960 960 960" className={className} fill="currentColor" aria-hidden="true">
@@ -208,6 +202,22 @@ export function Icon({ name, className = '' }) {
       return (
         <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2">
           <path d="m6 9 6 6 6-6" />
+        </svg>
+      );
+    case 'eye':
+      return (
+        <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      );
+    case 'eye-off':
+      return (
+        <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M3 3l18 18" />
+          <path d="M10.6 10.6A2 2 0 0 0 12 14a2 2 0 0 0 1.4-.6" />
+          <path d="M9.9 5.2A10.8 10.8 0 0 1 12 5c6 0 9.5 7 9.5 7a16.5 16.5 0 0 1-2.3 3.1" />
+          <path d="M6.6 6.6C3.9 8.4 2.5 12 2.5 12s3.5 7 9.5 7a10 10 0 0 0 4.1-.9" />
         </svg>
       );
     default:

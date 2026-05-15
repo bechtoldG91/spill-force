@@ -3,14 +3,15 @@ import { useEffect, useRef, useState } from 'react';
 import { Icon } from './Icons';
 import { UserAvatar } from './UserAvatar';
 import { APP_USER, NAV_ITEMS } from '../lib/constants';
-import { cn } from '../lib/utils';
+import { cn, hasAnyTeamRole } from '../lib/utils';
 
-export function AppShell({ children, authUser, onLogout }) {
+export function AppShell({ children, authUser, onLogout, clubNotificationsCount = 0 }) {
   const currentUser = authUser || APP_USER;
   const location = useLocation();
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [openNavMenu, setOpenNavMenu] = useState('');
   const accountMenuRef = useRef(null);
+  const hasClubNotifications = clubNotificationsCount > 0;
 
   useEffect(() => {
     setAccountMenuOpen(false);
@@ -29,26 +30,42 @@ export function AppShell({ children, authUser, onLogout }) {
   }, []);
 
   function isRouteActive(to) {
-    if (to === '/') {
+    const pathname = String(to || '').split('?')[0] || '/';
+    if (pathname === '/') {
       return location.pathname === '/';
     }
 
-    return location.pathname === to || location.pathname.startsWith(`${to}/`);
+    return location.pathname === pathname || location.pathname.startsWith(`${pathname}/`);
   }
 
   function isGroupActive(item) {
     return Array.isArray(item.items) && item.items.some((child) => isRouteActive(child.to));
   }
 
-  function canManageClub() {
-    return Boolean(
-      currentUser.globalAdmin ||
-        (currentUser.teamMemberships || []).some((membership) => ['admin', 'treinador'].includes(membership.role))
-    );
+  function hasClub() {
+    return Boolean(currentUser.globalAdmin || (currentUser.teamMemberships || []).length);
+  }
+
+  function hasAnyRole(roles = []) {
+    if (!roles.length || currentUser.globalAdmin) {
+      return true;
+    }
+
+    return hasAnyTeamRole(currentUser, roles);
   }
 
   function visibleChildren(item) {
-    return (item.items || []).filter((child) => !child.manageClubOnly || canManageClub());
+    return (item.items || []).filter((child) => {
+      if (child.requiresTeam && !hasClub()) {
+        return false;
+      }
+
+      if (child.roles && !hasAnyRole(child.roles)) {
+        return false;
+      }
+
+      return true;
+    });
   }
 
   function renderNavIcon(icon, className = 'h-4 w-4') {
@@ -61,6 +78,10 @@ export function AppShell({ children, authUser, onLogout }) {
     }
 
     return <Icon name={icon} className={className} />;
+  }
+
+  function NotificationDot() {
+    return <span className="h-2.5 w-2.5 rounded-full bg-red-500 shadow-[0_0_0_3px_rgba(239,68,68,0.18)]" aria-hidden="true" />;
   }
 
   return (
@@ -108,6 +129,7 @@ export function AppShell({ children, authUser, onLogout }) {
                   >
                     {renderNavIcon(item.icon)}
                     {item.label}
+                    {item.label === 'Clube' && hasClubNotifications ? <NotificationDot /> : null}
                     <Icon
                       name="chevron-down"
                       className={cn(
@@ -143,12 +165,13 @@ export function AppShell({ children, authUser, onLogout }) {
                         >
                           {renderNavIcon(child.icon)}
                           {child.label}
+                          {child.to === '/club-manage' && hasClubNotifications ? <NotificationDot /> : null}
                         </NavLink>
                       ))}
                     </div>
                   </div>
                 </div>
-              ) : (
+              ) : !item.requiresTeam || hasClub() ? (
                 <NavLink
                   key={item.to}
                   to={item.to}
@@ -163,8 +186,9 @@ export function AppShell({ children, authUser, onLogout }) {
                 >
                   {renderNavIcon(item.icon)}
                   {item.label}
+                  {item.to === '/time' && hasClubNotifications ? <NotificationDot /> : null}
                 </NavLink>
-              )
+              ) : null
             })}
           </nav>
 
@@ -210,19 +234,6 @@ export function AppShell({ children, authUser, onLogout }) {
                   )}
                 >
                   <div className="space-y-1 px-3 py-3">
-                    <NavLink
-                      to="/perfil"
-                      onClick={() => setAccountMenuOpen(false)}
-                      className={({ isActive }) =>
-                        cn(
-                          'flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold transition',
-                          isActive ? 'bg-tactical-pitch text-white' : 'text-tactical-ink hover:bg-tactical-pitch/10 hover:text-tactical-pitch'
-                        )
-                      }
-                    >
-                      <Icon name="profile" className="h-4 w-4" />
-                      Perfil
-                    </NavLink>
                     <NavLink
                       to="/configuracoes-da-conta"
                       onClick={() => setAccountMenuOpen(false)}

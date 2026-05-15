@@ -17,24 +17,16 @@ export const APP_USER = {
 
 export const NAV_ITEMS = [
   { to: '/', label: 'Inicio', icon: 'home' },
-  {
-    label: 'Clube',
-    icon: 'team',
-    items: [
-      { to: '/time', label: 'Meu clube', icon: 'team' },
-      { to: '/club-manage', label: 'Club manage', icon: 'settings', manageClubOnly: true }
-    ]
-  },
+  { to: '/time', label: 'Clube', icon: 'team', requiresTeam: true },
   {
     label: 'Video',
     icon: 'film',
     items: [
-      { to: '/upload', label: 'Upload', icon: 'upload' },
-      { to: '/biblioteca', label: 'Biblioteca', icon: 'library' },
-      { to: '/analise', label: 'Analise', icon: 'analysis' }
+      { to: '/upload', label: 'Upload', icon: 'upload', roles: ['admin', 'treinador'] },
+      { to: '/biblioteca', label: 'Biblioteca', icon: 'library', requiresTeam: true },
+      { to: '/analise', label: 'Analise', icon: 'analysis', requiresTeam: true }
     ]
-  },
-  { to: '/noticias', label: 'Noticias', icon: 'news' }
+  }
 ];
 
 export const SWATCHES = ['#3f8f29', '#78c93c', '#002244', '#1b5e9b', '#ffffff'];
