@@ -14,6 +14,9 @@ const {
   handleListTeamInvites,
   handleCreateTeamInvite,
   handleDeleteTeamInvite,
+  handleCreateTeamJoinRequest,
+  handleListTeamJoinRequests,
+  handleApproveTeamJoinRequest,
   handleCreateTeamRoleChangeRequest,
   handleListTeamRoleChangeRequests,
   handleApproveTeamRoleChangeRequest,
@@ -171,6 +174,30 @@ async function route(req, res) {
   if (teamInviteMatch) {
     if (req.method === 'DELETE') {
       await handleDeleteTeamInvite(req, res, teamInviteMatch[1], teamInviteMatch[2]);
+      return;
+    }
+    methodNotAllowed(res);
+    return;
+  }
+
+  const teamJoinRequestsMatch = /^\/api\/teams\/([^/]+)\/join-requests$/.exec(pathname);
+  if (teamJoinRequestsMatch) {
+    if (req.method === 'GET') {
+      await handleListTeamJoinRequests(req, res, teamJoinRequestsMatch[1]);
+      return;
+    }
+    if (req.method === 'POST') {
+      await handleCreateTeamJoinRequest(req, res, teamJoinRequestsMatch[1]);
+      return;
+    }
+    methodNotAllowed(res);
+    return;
+  }
+
+  const teamJoinApproveMatch = /^\/api\/teams\/([^/]+)\/join-requests\/([^/]+)\/approve$/.exec(pathname);
+  if (teamJoinApproveMatch) {
+    if (req.method === 'POST') {
+      await handleApproveTeamJoinRequest(req, res, teamJoinApproveMatch[1], teamJoinApproveMatch[2]);
       return;
     }
     methodNotAllowed(res);

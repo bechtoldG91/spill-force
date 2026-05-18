@@ -133,11 +133,13 @@ export function AuthPage({ mode = 'login', onLogin, onRegister, onForgotPassword
                     className="tactical-input"
                     value={form.inviteCode}
                     onChange={(event) => setForm((current) => ({ ...current, inviteCode: event.target.value.trim() }))}
-                    placeholder="Codigo enviado pelo clube"
+                    placeholder="Opcional"
                     autoComplete="one-time-code"
                     maxLength={120}
-                    required
                   />
+                  <span className="mt-1 block text-xs font-semibold text-tactical-ash">
+                    Use um codigo para entrar direto no clube ou deixe em branco para solicitar entrada depois.
+                  </span>
                 </label>
 
               </>
@@ -274,7 +276,7 @@ export function AuthPage({ mode = 'login', onLogin, onRegister, onForgotPassword
                   </>
                 ) : (
                   <>
-                    <strong className="font-black text-tactical-pitch">Criar conta com convite</strong>
+                    <strong className="font-black text-tactical-pitch">Criar conta</strong>
                   </>
                 )}
               </Link>

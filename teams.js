@@ -93,6 +93,10 @@ function pendingRequests(requests) {
   return (Array.isArray(requests) ? requests : []).filter((request) => request?.status === 'pending' && safeText(request.userId, 100));
 }
 
+function pendingJoinRequests(requests) {
+  return (Array.isArray(requests) ? requests : []).filter((request) => request?.status === 'pending' && safeText(request.userId, 100));
+}
+
 function pendingInvites(invites) {
   const now = Date.now();
   return (Array.isArray(invites) ? invites : []).filter((invite) => {
@@ -115,6 +119,16 @@ function inviteSummary(invite) {
     expiresAt: safeText(invite?.expiresAt, 40),
     status: 'pending',
     registerPath: `/cadastro?convite=${encodeURIComponent(safeText(invite?.code, 120))}`
+  };
+}
+
+function joinRequestSummary(request, user) {
+  return {
+    id: safeText(request?.id, 80),
+    requestedAt: safeText(request?.requestedAt, 40),
+    status: 'pending',
+    requestedRole: normalizeTeamRole(request?.requestedRole) || 'atleta',
+    user: requestUserSummary(user)
   };
 }
 
@@ -338,10 +352,21 @@ async function handleListTeams(req, res) {
     }
 
     const teamIds = new Set((user.teamMemberships || []).map((membership) => membership.teamId));
+    if (!teamIds.size) {
+      return allTeams;
+    }
+
     return allTeams.filter((team) => teamIds.has(team.id));
   });
 
-  jsonResponse(res, 200, { teams: teams.map(teamSummary) });
+  const teamIds = new Set((user.teamMemberships || []).map((membership) => membership.teamId));
+  jsonResponse(res, 200, {
+    teams: teams.map((team) => ({
+      ...teamSummary(team),
+      isMember: teamIds.has(team.id),
+      pendingJoinRequest: pendingJoinRequests(team.joinRequests).some((request) => request.userId === user.id)
+    }))
+  });
 }
 
 async function handleCreateTeam(req, res) {
@@ -410,6 +435,7 @@ async function handleCreateTeam(req, res) {
       socialLinks,
       ownerIds,
       invites: [],
+      joinRequests: [],
       roleChangeRequests: []
     };
 
@@ -783,6 +809,166 @@ async function handleDeleteTeamInvite(req, res, id, inviteId) {
   }
 
   jsonResponse(res, 200, { ok: true });
+}
+
+async function handleCreateTeamJoinRequest(req, res, id) {
+  const user = await getRequestUser(req);
+  if (!user) {
+    jsonResponse(res, 401, { error: 'Autenticacao necessaria.' });
+    return;
+  }
+
+  const teamId = safeText(decodeURIComponent(id), 80);
+  const result = await storageService.transaction(async (repository) => {
+    const team = await repository.findTeamById(teamId);
+    if (!team) {
+      return { missing: true };
+    }
+
+    const storedUser = await repository.findUserById(user.id);
+    if (!storedUser) {
+      return { missingUser: true };
+    }
+
+    const existingMembership = normalizeTeamMemberships(storedUser.teamMemberships).find((membership) => membership.teamId === teamId);
+    if (existingMembership || isGlobalAdmin(storedUser)) {
+      return { alreadyMember: true };
+    }
+
+    const request = {
+      id: randomUUID(),
+      userId: user.id,
+      requestedRole: 'atleta',
+      requestedAt: new Date().toISOString(),
+      status: 'pending'
+    };
+
+    const updatedTeam = await repository.updateTeam(teamId, (currentTeam) => ({
+      ...currentTeam,
+      joinRequests: [
+        ...pendingJoinRequests(currentTeam.joinRequests).filter((item) => item.userId !== user.id),
+        request
+      ],
+      updatedAt: new Date().toISOString()
+    }));
+
+    return { team: updatedTeam, request };
+  });
+
+  if (result.missing) {
+    jsonResponse(res, 404, { error: 'Clube nao encontrado.' });
+    return;
+  }
+
+  if (result.missingUser) {
+    jsonResponse(res, 404, { error: 'Usuario nao encontrado.' });
+    return;
+  }
+
+  if (result.alreadyMember) {
+    jsonResponse(res, 409, { error: 'Voce ja faz parte deste clube.' });
+    return;
+  }
+
+  jsonResponse(res, 201, {
+    request: {
+      id: result.request.id,
+      requestedRole: result.request.requestedRole,
+      requestedAt: result.request.requestedAt,
+      status: 'pending'
+    }
+  });
+}
+
+async function handleListTeamJoinRequests(req, res, id) {
+  const teamId = safeText(decodeURIComponent(id), 80);
+  const access = await authorizeRoles(req, res, teamId, TEAM_MANAGE_ROLES);
+  if (!access) {
+    return;
+  }
+
+  const requests = await storageService.transaction(async (repository) => {
+    const users = await repository.listUsers();
+    const usersById = new Map(users.map((user) => [user.id, user]));
+    return pendingJoinRequests(access.team.joinRequests)
+      .map((request) => {
+        const user = usersById.get(request.userId);
+        return user ? joinRequestSummary(request, user) : null;
+      })
+      .filter(Boolean);
+  });
+
+  jsonResponse(res, 200, { requests });
+}
+
+async function handleApproveTeamJoinRequest(req, res, id, requestId) {
+  const teamId = safeText(decodeURIComponent(id), 80);
+  const access = await authorizeRoles(req, res, teamId, TEAM_MANAGE_ROLES);
+  if (!access) {
+    return;
+  }
+
+  const safeRequestId = safeText(decodeURIComponent(requestId), 80);
+  const result = await storageService.transaction(async (repository) => {
+    const team = await repository.findTeamById(teamId);
+    if (!team) {
+      return { missing: true };
+    }
+
+    const requests = pendingJoinRequests(team.joinRequests);
+    const request = requests.find((item) => item.id === safeRequestId);
+    if (!request) {
+      return { missingRequest: true };
+    }
+
+    const targetUser = await repository.findUserById(request.userId);
+    if (!targetUser) {
+      return { missingUser: true };
+    }
+
+    const existingMembership = normalizeTeamMemberships(targetUser.teamMemberships).find((membership) => membership.teamId === teamId);
+    if (existingMembership) {
+      await repository.updateTeam(teamId, (currentTeam) => ({
+        ...currentTeam,
+        joinRequests: pendingJoinRequests(currentTeam.joinRequests).filter((item) => item.id !== safeRequestId),
+        updatedAt: new Date().toISOString()
+      }));
+      return { alreadyMember: true };
+    }
+
+    const role = normalizeTeamRole(request.requestedRole) || 'atleta';
+    const updatedUser = await repository.updateUser(targetUser.id, (user) => addTeamMembership(user, teamId, role));
+    await repository.updateTeam(teamId, (currentTeam) => ({
+      ...currentTeam,
+      joinRequests: pendingJoinRequests(currentTeam.joinRequests).filter((item) => item.id !== safeRequestId),
+      updatedAt: new Date().toISOString()
+    }));
+
+    const updatedMembership = normalizeTeamMemberships(updatedUser.teamMemberships).find((membership) => membership.teamId === teamId);
+    return { member: memberSummary(updatedUser, updatedMembership.role, updatedMembership) };
+  });
+
+  if (result.missing) {
+    jsonResponse(res, 404, { error: 'Clube nao encontrado.' });
+    return;
+  }
+
+  if (result.missingRequest) {
+    jsonResponse(res, 404, { error: 'Solicitacao nao encontrada.' });
+    return;
+  }
+
+  if (result.missingUser) {
+    jsonResponse(res, 404, { error: 'Usuario nao encontrado.' });
+    return;
+  }
+
+  if (result.alreadyMember) {
+    jsonResponse(res, 409, { error: 'Usuario ja faz parte deste clube.' });
+    return;
+  }
+
+  jsonResponse(res, 200, { member: result.member });
 }
 
 async function handleCreateTeamRoleChangeRequest(req, res, id) {
@@ -1194,6 +1380,9 @@ module.exports = {
   handleListTeamInvites,
   handleCreateTeamInvite,
   handleDeleteTeamInvite,
+  handleCreateTeamJoinRequest,
+  handleListTeamJoinRequests,
+  handleApproveTeamJoinRequest,
   handleCreateTeamRoleChangeRequest,
   handleListTeamRoleChangeRequests,
   handleApproveTeamRoleChangeRequest,

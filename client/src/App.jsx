@@ -155,6 +155,12 @@ export default function App() {
             total += (rolePayload.requests || []).length;
           }
 
+          const joinResponse = await authFetch(`/api/teams/${encodeURIComponent(membership.teamId)}/join-requests`);
+          const joinPayload = await joinResponse.json().catch(() => ({}));
+          if (joinResponse.ok) {
+            total += (joinPayload.requests || []).length;
+          }
+
           return total;
         })
       );

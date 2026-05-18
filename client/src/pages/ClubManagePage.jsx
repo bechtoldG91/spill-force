@@ -190,6 +190,7 @@ export function ClubManagePage({ authUser, showToast, onAuthRefresh, onNotificat
   const [memberBaselines, setMemberBaselines] = useState({});
   const [invites, setInvites] = useState([]);
   const [inviteForm, setInviteForm] = useState(EMPTY_INVITE_FORM);
+  const [joinRequests, setJoinRequests] = useState([]);
   const [roleChangeRequests, setRoleChangeRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [savingCover, setSavingCover] = useState(false);
@@ -198,6 +199,7 @@ export function ClubManagePage({ authUser, showToast, onAuthRefresh, onNotificat
   const [savingMembers, setSavingMembers] = useState(false);
   const [creatingInvite, setCreatingInvite] = useState(false);
   const [deletingInviteId, setDeletingInviteId] = useState('');
+  const [approvingJoinRequestId, setApprovingJoinRequestId] = useState('');
   const [approvingRoleChangeRequestId, setApprovingRoleChangeRequestId] = useState('');
   const [memberSearch, setMemberSearch] = useState('');
   const [memberSectorFilter, setMemberSectorFilter] = useState('');
@@ -239,12 +241,22 @@ export function ClubManagePage({ authUser, showToast, onAuthRefresh, onNotificat
         if (membership?.teamId) {
           const result = await fetchTeamWithMembers(membership.teamId, membership.role);
           const canReviewRoleChangeRequests = canManageRole(result.team.role, authUser);
-          const [invitesPayload, roleRequestsPayload] = await Promise.all([
+          const [invitesPayload, joinRequestsPayload, roleRequestsPayload] = await Promise.all([
             canManageRole(result.team.role, authUser)
               ? authFetch(`/api/teams/${encodeURIComponent(result.team.id)}/invites`).then((response) =>
                   response.json().then((payload) => {
                     if (!response.ok) {
                       throw new Error(payload.error || 'Nao foi possivel carregar convites.');
+                    }
+                    return payload;
+                  })
+                )
+              : Promise.resolve({ invites: [] }),
+            canManageRole(result.team.role, authUser)
+              ? authFetch(`/api/teams/${encodeURIComponent(result.team.id)}/join-requests`).then((response) =>
+                  response.json().then((payload) => {
+                    if (!response.ok) {
+                      throw new Error(payload.error || 'Nao foi possivel carregar pedidos de entrada.');
                     }
                     return payload;
                   })
@@ -267,6 +279,7 @@ export function ClubManagePage({ authUser, showToast, onAuthRefresh, onNotificat
             setMembers(result.members);
             setMemberBaselines(memberBaselineMap(result.members));
             setInvites(invitesPayload.invites || []);
+            setJoinRequests(joinRequestsPayload.requests || []);
             setRoleChangeRequests(roleRequestsPayload.requests || []);
           }
           return;
@@ -285,16 +298,25 @@ export function ClubManagePage({ authUser, showToast, onAuthRefresh, onNotificat
               setMembers([]);
               setMemberBaselines({});
               setInvites([]);
+              setJoinRequests([]);
               setRoleChangeRequests([]);
             }
             return;
           }
           const result = await fetchTeamWithMembers(firstTeam.id, 'admin');
-          const [invitesPayload, roleRequestsPayload] = await Promise.all([
+          const [invitesPayload, joinRequestsPayload, roleRequestsPayload] = await Promise.all([
             authFetch(`/api/teams/${encodeURIComponent(result.team.id)}/invites`).then((response) =>
               response.json().then((payload) => {
                 if (!response.ok) {
                   throw new Error(payload.error || 'Nao foi possivel carregar convites.');
+                }
+                return payload;
+              })
+            ),
+            authFetch(`/api/teams/${encodeURIComponent(result.team.id)}/join-requests`).then((response) =>
+              response.json().then((payload) => {
+                if (!response.ok) {
+                  throw new Error(payload.error || 'Nao foi possivel carregar pedidos de entrada.');
                 }
                 return payload;
               })
@@ -313,6 +335,7 @@ export function ClubManagePage({ authUser, showToast, onAuthRefresh, onNotificat
             setMembers(result.members);
             setMemberBaselines(memberBaselineMap(result.members));
             setInvites(invitesPayload.invites || []);
+            setJoinRequests(joinRequestsPayload.requests || []);
             setRoleChangeRequests(roleRequestsPayload.requests || []);
           }
         }
@@ -323,6 +346,7 @@ export function ClubManagePage({ authUser, showToast, onAuthRefresh, onNotificat
           setMembers([]);
           setMemberBaselines({});
           setInvites([]);
+          setJoinRequests([]);
           setRoleChangeRequests([]);
         }
       } finally {
@@ -572,6 +596,7 @@ export function ClubManagePage({ authUser, showToast, onAuthRefresh, onNotificat
       setMembers([]);
       setMemberBaselines({});
       setInvites([]);
+      setJoinRequests([]);
       setRoleChangeRequests([]);
       await onAuthRefresh?.();
       showToast('Time excluido.');
@@ -689,6 +714,38 @@ export function ClubManagePage({ authUser, showToast, onAuthRefresh, onNotificat
       showToast(error.message);
     } finally {
       setDeletingInviteId('');
+    }
+  }
+
+  async function approveJoinRequest(request) {
+    if (!team?.id || !request?.id) {
+      return;
+    }
+
+    setApprovingJoinRequestId(request.id);
+    try {
+      const response = await authFetch(`/api/teams/${encodeURIComponent(team.id)}/join-requests/${encodeURIComponent(request.id)}/approve`, {
+        method: 'POST'
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(payload.error || 'Nao foi possivel aprovar a entrada.');
+      }
+
+      const updatedMember = initialMember(payload.member);
+      setJoinRequests((current) => current.filter((item) => item.id !== request.id));
+      setMembers((current) => [...current.filter((member) => member.id !== updatedMember.id), updatedMember]);
+      setMemberBaselines((current) => ({
+        ...current,
+        [updatedMember.id]: memberSignature(updatedMember)
+      }));
+      await onNotificationsRefresh?.();
+      showToast('Membro adicionado ao clube.');
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      setApprovingJoinRequestId('');
     }
   }
 
@@ -950,6 +1007,44 @@ export function ClubManagePage({ authUser, showToast, onAuthRefresh, onNotificat
           ) : null}
         </div>
       </section>
+
+      {joinRequests.length ? (
+        <section className="tactical-panel overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-tactical-ink/10 px-5 py-4">
+            <div>
+              <span className="tactical-label mb-0">Entrada</span>
+              <h2 className="text-xl font-black tracking-tight text-tactical-ink">Pedidos para entrar</h2>
+            </div>
+            <span className="rounded-full bg-tactical-pitch/10 px-3 py-1 text-xs font-black uppercase tracking-[0.12em] text-tactical-pitch">
+              {joinRequests.length} pendente{joinRequests.length === 1 ? '' : 's'}
+            </span>
+          </div>
+
+          <div className="grid gap-3 px-5 py-5">
+            {joinRequests.map((request) => (
+              <article
+                key={request.id}
+                className="grid gap-3 rounded-xl border border-tactical-line/35 bg-tactical-bone/35 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+              >
+                <div className="min-w-0">
+                  <strong className="block truncate text-sm font-black text-tactical-ink">{request.user?.name || request.user?.email}</strong>
+                  <span className="mt-1 block text-xs font-black uppercase tracking-[0.14em] text-tactical-ash">
+                    Entrada como {roleLabel(request.requestedRole || 'atleta')}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="tactical-button h-11 px-3"
+                  disabled={approvingJoinRequestId === request.id}
+                  onClick={() => approveJoinRequest(request)}
+                >
+                  {approvingJoinRequestId === request.id ? 'Aprovando...' : 'Aprovar'}
+                </button>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {roleChangeRequests.length ? (
         <section className="tactical-panel overflow-hidden">

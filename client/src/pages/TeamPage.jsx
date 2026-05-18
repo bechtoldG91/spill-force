@@ -182,6 +182,8 @@ export function TeamPage({ authUser, showToast, onAuthRefresh, clubNotifications
   const [athleteProfileForm, setAthleteProfileForm] = useState(EMPTY_ATHLETE_PROFILE_FORM);
   const [athleteProfileBaseline, setAthleteProfileBaseline] = useState(athleteProfileSignature(EMPTY_ATHLETE_PROFILE_FORM));
   const [savingAthleteProfile, setSavingAthleteProfile] = useState(false);
+  const [availableTeams, setAvailableTeams] = useState([]);
+  const [requestingJoinTeamId, setRequestingJoinTeamId] = useState('');
   const hasClubMembership = Boolean((authUser?.teamMemberships || []).length);
 
   useEffect(() => {
@@ -191,9 +193,25 @@ export function TeamPage({ authUser, showToast, onAuthRefresh, clubNotifications
       if (!authUser?.teamMemberships?.length) {
         setTeams(initialTeams(authUser));
         setActiveTeamId('');
+        try {
+          const response = await authFetch('/api/teams');
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(payload.error || 'Nao foi possivel carregar clubes.');
+          }
+          if (!ignore) {
+            setAvailableTeams(payload.teams || []);
+          }
+        } catch (error) {
+          if (!ignore) {
+            setAvailableTeams([]);
+            showToast(error.message);
+          }
+        }
         return;
       }
 
+      setAvailableTeams([]);
       const loadingTeams = initialTeams(authUser);
       setTeams(loadingTeams);
       setActiveTeamId((current) => (loadingTeams.some((team) => team.id === current) ? current : loadingTeams[0]?.id || ''));
@@ -562,6 +580,31 @@ export function TeamPage({ authUser, showToast, onAuthRefresh, clubNotifications
     }
   }
 
+  async function requestJoinTeam(teamId) {
+    if (!teamId || requestingJoinTeamId) {
+      return;
+    }
+
+    setRequestingJoinTeamId(teamId);
+    try {
+      const response = await authFetch(`/api/teams/${encodeURIComponent(teamId)}/join-requests`, {
+        method: 'POST'
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(payload.error || 'Nao foi possivel solicitar entrada no clube.');
+      }
+
+      setAvailableTeams((current) => current.map((team) => (team.id === teamId ? { ...team, pendingJoinRequest: true } : team)));
+      showToast('Solicitacao enviada ao clube.');
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      setRequestingJoinTeamId('');
+    }
+  }
+
   async function saveTeamRoleDraft() {
     if (!hasRoleDraftChange) {
       return;
@@ -677,16 +720,62 @@ export function TeamPage({ authUser, showToast, onAuthRefresh, clubNotifications
         </aside>
       </section>
     ) : (
-      <section className="tactical-panel px-6 py-12 text-center">
-        <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-tactical-pitch/10 text-tactical-pitch">
-          <Icon name="team" className="h-7 w-7" />
-        </div>
-        <strong className="mt-4 block text-sm font-black uppercase tracking-[0.16em] text-tactical-ink">
-          Acesso por convite
-        </strong>
-        <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-tactical-ash">
-          Fale com um admin ou treinador para receber um convite do clube.
-        </p>
+      <section className="grid gap-5">
+        <article className="tactical-panel px-6 py-6">
+          <div className="flex items-center gap-3">
+            <div className="grid h-14 w-14 place-items-center rounded-2xl bg-tactical-pitch/10 text-tactical-pitch">
+              <Icon name="team" className="h-7 w-7" />
+            </div>
+            <div>
+              <span className="tactical-label mb-0">Sem clube</span>
+              <h1 className="text-2xl font-black tracking-tight text-tactical-ink">Solicitar entrada</h1>
+            </div>
+          </div>
+          <p className="mt-3 max-w-2xl text-sm font-semibold leading-6 text-tactical-ash">
+            Procure o clube abaixo e envie uma solicitacao. Um admin ou treinador precisa aprovar antes do acesso aos videos.
+          </p>
+        </article>
+
+        <section className="tactical-panel overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-tactical-ink/10 px-5 py-4">
+            <div>
+              <span className="tactical-label mb-0">Clubes</span>
+              <h2 className="text-xl font-black tracking-tight text-tactical-ink">Disponiveis</h2>
+            </div>
+            <span className="rounded-full bg-tactical-pitch/10 px-3 py-1 text-xs font-black uppercase tracking-[0.12em] text-tactical-pitch">
+              {availableTeams.length} clube{availableTeams.length === 1 ? '' : 's'}
+            </span>
+          </div>
+
+          <div className="grid gap-3 px-5 py-5">
+            {availableTeams.map((team) => (
+              <article
+                key={team.id}
+                className="grid gap-3 rounded-xl border border-tactical-line/35 bg-white p-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center"
+              >
+                <TeamLogo team={team} className="h-12 w-12" roundedClassName="rounded-xl" />
+                <div className="min-w-0">
+                  <strong className="block truncate text-sm font-black text-tactical-ink">{team.name}</strong>
+                  <span className="mt-1 block truncate text-xs font-semibold text-tactical-ash">{team.city || 'Cidade nao informada'}</span>
+                </div>
+                <button
+                  type="button"
+                  className="tactical-button h-11 px-4"
+                  disabled={team.pendingJoinRequest || requestingJoinTeamId === team.id}
+                  onClick={() => requestJoinTeam(team.id)}
+                >
+                  {team.pendingJoinRequest ? 'Solicitado' : requestingJoinTeamId === team.id ? 'Enviando...' : 'Solicitar'}
+                </button>
+              </article>
+            ))}
+
+            {!availableTeams.length ? (
+              <div className="rounded-xl border border-dashed border-tactical-ink/15 px-4 py-8 text-center">
+                <strong className="text-sm font-black uppercase tracking-[0.16em] text-tactical-ink">Nenhum clube disponivel</strong>
+              </div>
+            ) : null}
+          </div>
+        </section>
       </section>
     );
   }

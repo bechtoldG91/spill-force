@@ -239,7 +239,7 @@ function normalizeTeamMemberships(memberships) {
 }
 
 function accountCanAccessApp(user) {
-  return Boolean(isGlobalAdmin(user) || normalizeTeamMemberships(user?.teamMemberships).length);
+  return Boolean(user?.id);
 }
 
 function adminUserSummary(user, teamsById = new Map()) {
@@ -515,11 +515,6 @@ async function handleRegister(req, res) {
   }
 
   const isConfiguredGlobalAdmin = config.globalAdminEmails.includes(email);
-  if (!isConfiguredGlobalAdmin && !inviteCode) {
-    jsonResponse(res, 400, { error: 'Informe o codigo de convite recebido pelo clube.' });
-    return;
-  }
-
   const result = await storageService.transaction(async (repository) => {
     const existing = await repository.findUserByEmail(email);
     if (existing) {
@@ -528,7 +523,7 @@ async function handleRegister(req, res) {
 
     let inviteTeam = null;
     let invite = null;
-    if (!isConfiguredGlobalAdmin) {
+    if (inviteCode) {
       const teams = await repository.listTeams();
       for (const team of teams) {
         const foundInvite = (Array.isArray(team.invites) ? team.invites : []).find((item) => item?.code === inviteCode);
@@ -646,11 +641,6 @@ async function handleLogin(req, res) {
   }
 
   const responseUser = publicUser(user);
-  if (!accountCanAccessApp(responseUser)) {
-    jsonResponse(res, 403, { error: 'Esta conta ainda nao possui convite aceito em um clube.' });
-    return;
-  }
-
   const token = signJwt(responseUser);
   setAuthCookie(res, token);
   jsonResponse(res, 200, { token, user: responseUser });
@@ -798,12 +788,6 @@ async function handleMe(req, res) {
   const user = await getRequestUser(req);
   if (!user) {
     jsonResponse(res, 200, { user: null });
-    return;
-  }
-
-  if (!accountCanAccessApp(user)) {
-    clearAuthCookie(res);
-    jsonResponse(res, 403, { error: 'Esta conta ainda nao possui convite aceito em um clube.' });
     return;
   }
 
