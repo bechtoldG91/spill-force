@@ -376,8 +376,9 @@ async function handleCreateTeam(req, res) {
     return;
   }
 
-  if (!isGlobalAdmin(creator)) {
-    jsonResponse(res, 403, { error: 'Apenas admin global pode criar clubes.' });
+  const creatorMemberships = normalizeTeamMemberships(creator.teamMemberships);
+  if (!isGlobalAdmin(creator) && creatorMemberships.length) {
+    jsonResponse(res, 403, { error: 'Apenas usuarios sem clube podem criar um novo clube.' });
     return;
   }
 

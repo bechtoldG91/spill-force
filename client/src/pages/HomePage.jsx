@@ -6,12 +6,14 @@ import { formatDate, formatDuration } from '../lib/utils';
 import { Icon } from '../components/Icons';
 import { UserAvatar } from '../components/UserAvatar';
 
-export function HomePage({ showToast, authUser, clubNotificationsCount = 0 }) {
+export function HomePage({ showToast, authUser, clubNotificationsCount = 0, onAuthRefresh }) {
   const currentUser = authUser || APP_USER;
   const [videos, setVideos] = useState([]);
   const [userTeams, setUserTeams] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expandedPlaylists, setExpandedPlaylists] = useState({});
+  const [clubForm, setClubForm] = useState({ name: '', city: '' });
+  const [creatingClub, setCreatingClub] = useState(false);
 
   const playlistFeed = useMemo(() => {
     const groups = new Map();
@@ -70,6 +72,12 @@ export function HomePage({ showToast, authUser, clubNotificationsCount = 0 }) {
     let ignore = false;
 
     async function loadFeed() {
+      if (authUser && !authUser.globalAdmin && !(authUser.teamMemberships || []).length) {
+        setVideos([]);
+        setLoading(false);
+        return;
+      }
+
       try {
         const response = await authFetch('/api/videos');
         if (!response.ok) {
@@ -95,7 +103,7 @@ export function HomePage({ showToast, authUser, clubNotificationsCount = 0 }) {
     return () => {
       ignore = true;
     };
-  }, [showToast]);
+  }, [authUser, showToast]);
 
   useEffect(() => {
     let ignore = false;
@@ -147,7 +155,45 @@ export function HomePage({ showToast, authUser, clubNotificationsCount = 0 }) {
     }));
   }
 
+  async function createClub(event) {
+    event.preventDefault();
+
+    const name = clubForm.name.trim();
+    if (!name) {
+      showToast('Informe o nome do clube.');
+      return;
+    }
+
+    setCreatingClub(true);
+    try {
+      const response = await authFetch('/api/teams', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          name,
+          city: clubForm.city
+        })
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(payload.error || 'Nao foi possivel criar o clube.');
+      }
+
+      setClubForm({ name: '', city: '' });
+      await onAuthRefresh?.();
+      showToast('Clube criado.');
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      setCreatingClub(false);
+    }
+  }
+
   const displayedTeams = authUser ? userTeams : APP_USER.teams;
+  const canCreateClub = Boolean(authUser && !authUser.globalAdmin && !(authUser.teamMemberships || []).length);
   const isAthleteUser = Boolean(
     authUser &&
       !authUser.globalAdmin &&
@@ -224,6 +270,37 @@ export function HomePage({ showToast, authUser, clubNotificationsCount = 0 }) {
             ) : null}
           </div>
         </article>
+
+        {canCreateClub ? (
+          <form className="tactical-panel mt-4 px-5 py-5" onSubmit={createClub}>
+            <span className="tactical-label">Novo clube</span>
+            <h2 className="text-xl font-black tracking-tight text-tactical-ink">Criar clube</h2>
+            <div className="mt-4 grid gap-3">
+              <label className="block">
+                <span className="tactical-label">Nome</span>
+                <input
+                  className="tactical-input"
+                  value={clubForm.name}
+                  onChange={(event) => setClubForm((current) => ({ ...current, name: event.target.value }))}
+                  maxLength={120}
+                  required
+                />
+              </label>
+              <label className="block">
+                <span className="tactical-label">Cidade</span>
+                <input
+                  className="tactical-input"
+                  value={clubForm.city}
+                  onChange={(event) => setClubForm((current) => ({ ...current, city: event.target.value }))}
+                  maxLength={120}
+                />
+              </label>
+              <button type="submit" className="tactical-button w-full" disabled={creatingClub}>
+                {creatingClub ? 'Criando...' : 'Criar clube'}
+              </button>
+            </div>
+          </form>
+        ) : null}
       </aside>
 
       <div className="flex w-full min-w-0 flex-col gap-5">
@@ -244,13 +321,33 @@ export function HomePage({ showToast, authUser, clubNotificationsCount = 0 }) {
           </Link>
         ) : null}
 
+        {canCreateClub ? (
+          <div className="tactical-panel px-6 py-10 text-center">
+            <div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-tactical-pitch/10 text-tactical-pitch">
+              <Icon name="team" className="h-7 w-7" />
+            </div>
+            <strong className="mt-4 block text-lg font-black uppercase tracking-[0.14em] text-tactical-ink">
+              Crie seu clube ou solicite entrada
+            </strong>
+            <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-tactical-ash">
+              Use o formulario ao lado para criar um clube novo, ou acesse Clube para procurar um clube existente.
+            </p>
+            <Link
+              to="/time"
+              className="mt-4 inline-flex min-h-11 items-center justify-center rounded-xl border border-tactical-ink/10 px-4 text-xs font-black uppercase tracking-[0.14em] text-tactical-ink transition hover:border-tactical-pitch/35 hover:bg-tactical-pitch/10"
+            >
+              Procurar clube
+            </Link>
+          </div>
+        ) : null}
+
         {loading ? (
           <div className="tactical-panel px-6 py-10 text-sm font-semibold uppercase tracking-[0.18em] text-tactical-ash">
             Carregando feed...
           </div>
         ) : null}
 
-        {!loading && playlistFeed.length === 0 ? (
+        {!loading && playlistFeed.length === 0 && !canCreateClub ? (
           <div className="tactical-panel px-6 py-10 text-center">
             <div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-tactical-pitch/10 text-tactical-pitch">
               <Icon name="film" className="h-7 w-7" />

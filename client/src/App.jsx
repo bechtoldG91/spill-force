@@ -360,11 +360,12 @@ export default function App() {
                 <Route
                   path="/"
                   element={
-                    hasTeamMemberships || authUser.globalAdmin ? (
-                      <HomePage showToast={showToast} authUser={authUser} clubNotificationsCount={clubNotificationsCount} />
-                    ) : (
-                      <Navigate to="/time" replace />
-                    )
+                    <HomePage
+                      showToast={showToast}
+                      authUser={authUser}
+                      clubNotificationsCount={clubNotificationsCount}
+                      onAuthRefresh={refreshAuthUser}
+                    />
                   }
                 />
                 <Route path="/index.html" element={<Navigate to="/" replace />} />
