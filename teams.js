@@ -1,4 +1,4 @@
-const { randomUUID } = require('node:crypto');
+const { randomInt, randomUUID } = require('node:crypto');
 const {
   storageService,
   jsonResponse,
@@ -17,7 +17,6 @@ const TEAM_READ_ROLES = ['admin', 'treinador', 'atleta'];
 const TEAM_ADMIN_ROLES = ['admin'];
 const TEAM_EVENT_ROLES = ['admin', 'treinador'];
 const TEAM_MANAGE_ROLES = ['admin', 'treinador'];
-const TEAM_INVITE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 const TEAM_POSITION_GROUPS = {
   ataque: ['QB', 'RB', 'WR', 'TE', 'OL'],
   defesa: ['DL', 'LB', 'DB'],
@@ -28,6 +27,17 @@ const TEAM_ROLE_LABELS = {
   treinador: 'treinador',
   atleta: 'atleta'
 };
+
+function generateInviteCode(existingCodes = new Set()) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const code = String(randomInt(0, 1000000)).padStart(6, '0');
+    if (!existingCodes.has(code)) {
+      return code;
+    }
+  }
+
+  return String(randomInt(0, 1000000)).padStart(6, '0');
+}
 
 function roleLabel(role) {
   return TEAM_ROLE_LABELS[role] || role || 'membro';
@@ -98,14 +108,12 @@ function pendingJoinRequests(requests) {
 }
 
 function pendingInvites(invites) {
-  const now = Date.now();
   return (Array.isArray(invites) ? invites : []).filter((invite) => {
     if (invite?.status !== 'pending' || !safeText(invite.email, 160) || !safeText(invite.code, 120)) {
       return false;
     }
 
-    const expiresAt = Date.parse(invite.expiresAt || '');
-    return !Number.isFinite(expiresAt) || expiresAt >= now;
+    return true;
   });
 }
 
@@ -116,7 +124,6 @@ function inviteSummary(invite) {
     email: safeText(invite?.email, 160).toLowerCase(),
     role: normalizeTeamRole(invite?.role),
     invitedAt: safeText(invite?.invitedAt, 40),
-    expiresAt: safeText(invite?.expiresAt, 40),
     status: 'pending',
     registerPath: `/cadastro?convite=${encodeURIComponent(safeText(invite?.code, 120))}`
   };
@@ -728,14 +735,14 @@ async function handleCreateTeamInvite(req, res, id) {
       }
     }
 
+    const existingCodes = new Set(pendingInvites(team.invites).map((item) => safeText(item.code, 120)));
     const invite = {
       id: randomUUID(),
-      code: randomUUID(),
+      code: generateInviteCode(existingCodes),
       email,
       role,
       invitedBy: access.user.id,
       invitedAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + TEAM_INVITE_TTL_MS).toISOString(),
       status: 'pending'
     };
 

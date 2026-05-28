@@ -31,7 +31,8 @@ const {
   handleDeleteVideo,
   handleUpdateVideo,
   handleTrimVideo,
-  handleLongCutVideo
+  handleLongCutVideo,
+  recoverInterruptedVideoProcessing
 } = require('./videos');
 const { handleGetAnnotations, handlePutAnnotations } = require('./annotations');
 const { serveVideo, serveStatic } = require('./static');
@@ -427,4 +428,10 @@ function listen(port, remainingAttempts = config.isProduction ? 0 : 10) {
   server.listen(port);
 }
 
-listen(config.port);
+recoverInterruptedVideoProcessing()
+  .catch((error) => {
+    console.error('[video-processing] falha ao recuperar processamentos interrompidos', error);
+  })
+  .finally(() => {
+    listen(config.port);
+  });

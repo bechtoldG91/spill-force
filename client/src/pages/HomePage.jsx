@@ -316,7 +316,7 @@ export function HomePage({ showToast, authUser, clubNotificationsCount = 0, onAu
               </strong>
             </div>
             <span className="inline-flex min-h-11 items-center justify-center rounded-xl bg-tactical-ink px-4 text-xs font-black uppercase tracking-[0.14em] text-white">
-              Abrir configuracoes
+              Abrir configuracoes do clube
             </span>
           </Link>
         ) : null}

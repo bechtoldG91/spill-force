@@ -542,16 +542,6 @@ async function handleRegister(req, res) {
         return { emailMismatch: true };
       }
 
-      const expiresAt = Date.parse(invite.expiresAt || '');
-      if (Number.isFinite(expiresAt) && expiresAt < Date.now()) {
-        await repository.updateTeam(inviteTeam.id, (team) => ({
-          ...team,
-          invites: (Array.isArray(team.invites) ? team.invites : []).filter((item) => item?.code !== inviteCode),
-          updatedAt: new Date().toISOString()
-        }));
-        return { expiredInvite: true };
-      }
-
       invite.role = normalizeTeamRole(invite.role);
       if (!invite.role) {
         return { invalidInvite: true };
@@ -600,11 +590,6 @@ async function handleRegister(req, res) {
 
   if (result.emailMismatch) {
     jsonResponse(res, 403, { error: 'Este convite foi emitido para outro email.' });
-    return;
-  }
-
-  if (result.expiredInvite) {
-    jsonResponse(res, 410, { error: 'Este convite expirou. Solicite um novo convite ao clube.' });
     return;
   }
 
@@ -690,7 +675,6 @@ async function handleForgotPassword(req, res) {
   jsonResponse(res, 200, {
     ok: true,
     message: 'Se o email existir, um codigo de recuperacao foi gerado.',
-    resetCode: result.userFound ? resetCode : '',
     expiresInMinutes: Math.round(PASSWORD_RESET_CODE_TTL_MS / 60000)
   });
 }

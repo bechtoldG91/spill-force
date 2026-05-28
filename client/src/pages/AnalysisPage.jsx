@@ -17,7 +17,7 @@ import {
 } from '../components/player/playerUtils';
 import { MARKER_TOLERANCE } from '../lib/constants';
 import { authFetch } from '../lib/auth';
-import { cn, createId } from '../lib/utils';
+import { cn, createId, isVideoProcessing, videoProcessingMessage } from '../lib/utils';
 
 const DEFAULT_DRAW_COLOR = '#ffd400';
 const DEFAULT_DRAW_WIDTH = 6;
@@ -588,6 +588,11 @@ export function AnalysisPage({ showToast }) {
   async function saveVideoRow(videoId) {
     const video = videos.find((item) => item.id === videoId);
     if (!video) {
+      return;
+    }
+
+    if (isVideoProcessing(video)) {
+      showToast(videoProcessingMessage(video));
       return;
     }
 
@@ -1914,10 +1919,10 @@ export function AnalysisPage({ showToast }) {
                     <button
                       type="button"
                       className="h-10 w-full rounded-lg bg-tactical-ink px-2 text-xs font-black uppercase tracking-[0.12em] text-white transition hover:bg-tactical-pitch disabled:cursor-not-allowed disabled:opacity-60"
-                      disabled={savingVideoId === video.id}
+                      disabled={savingVideoId === video.id || isVideoProcessing(video)}
                       onClick={() => saveVideoRow(video.id)}
                     >
-                      {savingVideoId === video.id ? 'Salvando' : 'Salvar'}
+                      {isVideoProcessing(video) ? 'Editando' : savingVideoId === video.id ? 'Salvando' : 'Salvar'}
                     </button>
                   </td>
                 </tr>

@@ -143,6 +143,42 @@ function resolvePlaylist(video, playlists) {
   );
 }
 
+function videoProcessingSummary(processing) {
+  if (!processing || typeof processing !== 'object') {
+    return null;
+  }
+
+  return {
+    id: safeText(processing.id, 80),
+    operation: safeText(processing.operation, 40),
+    status: safeText(processing.status, 40) || 'processing',
+    message: safeText(processing.message, 180),
+    startedAt: safeText(processing.startedAt, 40),
+    updatedAt: safeText(processing.updatedAt, 40),
+    requestedBy: {
+      id: safeText(processing.requestedBy?.id, 100),
+      name: safeText(processing.requestedBy?.name, 120),
+      email: safeText(processing.requestedBy?.email, 160).toLowerCase()
+    }
+  };
+}
+
+function videoProcessingErrorSummary(processingError) {
+  if (!processingError || typeof processingError !== 'object') {
+    return null;
+  }
+
+  return {
+    operation: safeText(processingError.operation, 40),
+    message: safeText(processingError.message, 220),
+    failedAt: safeText(processingError.failedAt, 40),
+    requestedBy: {
+      name: safeText(processingError.requestedBy?.name, 120),
+      email: safeText(processingError.requestedBy?.email, 160).toLowerCase()
+    }
+  };
+}
+
 function videoSummary(video, playlists = []) {
   const playlist = resolvePlaylist(video, playlists);
   return {
@@ -163,6 +199,8 @@ function videoSummary(video, playlists = []) {
     contentType: video.contentType,
     size: video.size,
     duration: video.duration,
+    processing: videoProcessingSummary(video.processing),
+    processingError: videoProcessingErrorSummary(video.processingError),
     createdAt: video.createdAt,
     updatedAt: video.updatedAt
   };
@@ -265,6 +303,15 @@ async function handleDeletePlaylist(req, res, rawId) {
 
     const nextPlaylists = playlists.filter((item) => item.id !== id);
     const deletedVideos = videos.filter((video) => video.playlistId === id);
+    const lockedVideo = deletedVideos.find((video) => video.processing && ['queued', 'processing'].includes(video.processing.status));
+    if (lockedVideo) {
+      return {
+        found: true,
+        locked: true,
+        lockedBy: safeText(lockedVideo.processing?.requestedBy?.name, 120) || 'outro usuario'
+      };
+    }
+
     const deletedVideoIds = deletedVideos.map((video) => video.id);
     const nextVideos = videos.filter((video) => video.playlistId !== id);
 
@@ -281,6 +328,11 @@ async function handleDeletePlaylist(req, res, rawId) {
 
   if (!result.found) {
     jsonResponse(res, 404, { error: 'Playlist nao encontrada.' });
+    return;
+  }
+
+  if (result.locked) {
+    jsonResponse(res, 409, { error: `Playlist contem video ja sendo editado por ${result.lockedBy}.` });
     return;
   }
 

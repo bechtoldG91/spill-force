@@ -954,14 +954,12 @@ export function ClubManagePage({ authUser, showToast, onAuthRefresh, onNotificat
                     <th className={MEMBER_TABLE_LABEL_CLASS}>Email</th>
                     <th className={MEMBER_TABLE_LABEL_CLASS}>Funcao</th>
                     <th className={MEMBER_TABLE_LABEL_CLASS}>Codigo</th>
-                    <th className={MEMBER_TABLE_LABEL_CLASS}>Expira</th>
                     <th className={MEMBER_TABLE_LABEL_CLASS}>Acao</th>
                   </tr>
                 </thead>
                 <tbody>
                   {invites.map((invite) => {
                     const inviteUrl = `${window.location.origin}${invite.registerPath || `/cadastro?convite=${encodeURIComponent(invite.code)}`}`;
-                    const expiresAt = invite.expiresAt ? new Date(invite.expiresAt) : null;
                     return (
                       <tr key={invite.id} className="bg-white transition hover:bg-tactical-bone/45">
                         <td className={MEMBER_TABLE_CELL_CLASS}>
@@ -984,9 +982,6 @@ export function ClubManagePage({ authUser, showToast, onAuthRefresh, onNotificat
                               Copiar
                             </button>
                           </div>
-                        </td>
-                        <td className={MEMBER_TABLE_CELL_CLASS}>
-                          {expiresAt && !Number.isNaN(expiresAt.getTime()) ? expiresAt.toLocaleDateString('pt-BR') : '-'}
                         </td>
                         <td className={MEMBER_TABLE_CELL_CLASS}>
                           <button

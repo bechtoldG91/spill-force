@@ -20,11 +20,11 @@ services:
       - key: DATABASE_URL
         value: json://storage
       - key: STORAGE_DIR
-        value: storage
+        value: /opt/render/project/src/storage
       - key: PUBLIC_DIR
         value: public
       - key: LOG_DIR
-        value: storage/.runtime
+        value: /opt/render/project/src/storage/.runtime
       - key: PASSWORD_HASH_ROUNDS
         value: 12
       - key: JWT_TTL_SECONDS

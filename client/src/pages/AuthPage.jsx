@@ -18,7 +18,6 @@ export function AuthPage({ mode = 'login', onLogin, onRegister, onForgotPassword
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [resetRequested, setResetRequested] = useState(false);
-  const [resetCode, setResetCode] = useState('');
 
   const isRegister = mode === 'register';
   const isForgot = mode === 'forgot';
@@ -31,7 +30,6 @@ export function AuthPage({ mode = 'login', onLogin, onRegister, onForgotPassword
     });
     setShowPassword(false);
     setResetRequested(false);
-    setResetCode('');
   }, [inviteCodeFromUrl, mode]);
 
   async function handleSubmit(event) {
@@ -40,10 +38,7 @@ export function AuthPage({ mode = 'login', onLogin, onRegister, onForgotPassword
 
     try {
       if (isForgot && !resetRequested) {
-        const payload = await onForgotPassword({ email: form.email });
-        const nextCode = String(payload?.resetCode || '');
-        setResetCode(nextCode);
-        setForm((current) => ({ ...current, code: nextCode }));
+        await onForgotPassword({ email: form.email });
         setResetRequested(true);
         return;
       }
@@ -64,7 +59,6 @@ export function AuthPage({ mode = 'login', onLogin, onRegister, onForgotPassword
       }
       setForm(EMPTY_FORM);
       setResetRequested(false);
-      setResetCode('');
     } catch (error) {
       showToast(error.message);
     } finally {
@@ -162,21 +156,13 @@ export function AuthPage({ mode = 'login', onLogin, onRegister, onForgotPassword
 
             {isForgot && resetRequested ? (
               <div className="rounded-xl border border-tactical-pitch/25 bg-tactical-pitch/10 px-3 py-3 text-sm font-semibold text-tactical-ink">
-                {resetCode ? (
-                  <>
-                    <span className="block text-xs font-black uppercase tracking-[0.16em] text-tactical-pitch">Codigo temporario</span>
-                    <strong className="mt-1 block text-2xl font-black tracking-[0.24em] text-tactical-ink">{resetCode}</strong>
-                  </>
-                ) : (
-                  <span>Se este email existir, use o codigo recebido para criar uma nova senha.</span>
-                )}
+                <span>Se este email existir, use o codigo recebido para criar uma nova senha.</span>
                 <span className="mt-2 block text-xs font-semibold text-tactical-ash">O codigo expira em 15 minutos.</span>
                 <button
                   type="button"
                   className="mt-3 text-xs font-black uppercase tracking-[0.14em] text-tactical-pitch hover:text-tactical-ink"
                   onClick={() => {
                     setResetRequested(false);
-                    setResetCode('');
                     setForm((current) => ({ ...current, code: '', password: '', confirmPassword: '' }));
                   }}
                 >

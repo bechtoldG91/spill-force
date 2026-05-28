@@ -695,6 +695,25 @@ async function buildRemainingVideoFile(storageName, ranges) {
   const filePath = path.join(VIDEO_DIR, safeStorageName);
   const extension = path.extname(safeStorageName) || '.mp4';
   const outputPath = path.join(VIDEO_DIR, `${safeStorageName}.${randomUUID()}.remaining${extension}`);
+
+  if (!isInside(VIDEO_DIR, filePath) || !isInside(VIDEO_DIR, outputPath)) {
+    throw new Error('INVALID_VIDEO_STORAGE_PATH');
+  }
+
+  const result = await buildRemainingVideoOutputFile(storageName, path.basename(outputPath), ranges);
+  await replaceVideoFile(filePath, outputPath);
+
+  return result;
+}
+
+async function buildRemainingVideoOutputFile(storageName, outputStorageName, ranges) {
+  await ensureStorage();
+
+  const safeStorageName = safeBaseName(storageName);
+  const safeOutputStorageName = safeBaseName(outputStorageName);
+  const filePath = path.join(VIDEO_DIR, safeStorageName);
+  const outputPath = path.join(VIDEO_DIR, safeOutputStorageName);
+  const extension = path.extname(safeOutputStorageName) || path.extname(safeStorageName) || '.mp4';
   const listPath = path.join(VIDEO_DIR, `${safeStorageName}.${randomUUID()}.concat.txt`);
   const segmentPaths = [];
   const safeRanges = (Array.isArray(ranges) ? ranges : [])
@@ -732,7 +751,6 @@ async function buildRemainingVideoFile(storageName, ranges) {
     }
 
     const stat = await fsp.stat(outputPath);
-    await replaceVideoFile(filePath, outputPath);
 
     return {
       size: stat.size
@@ -740,7 +758,6 @@ async function buildRemainingVideoFile(storageName, ranges) {
   } finally {
     await Promise.all([
       fsp.rm(listPath, { force: true }).catch(() => {}),
-      fsp.rm(outputPath, { force: true }).catch(() => {}),
       ...segmentPaths.map((segmentPath) => fsp.rm(segmentPath, { force: true }).catch(() => {}))
     ]);
   }
@@ -858,6 +875,7 @@ const storageService = {
   saveVideoFile,
   trimVideoFile,
   buildRemainingVideoFile,
+  buildRemainingVideoOutputFile,
   extractVideoClipFile
 };
 

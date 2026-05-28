@@ -1,8 +1,9 @@
 # Spill&Force
 
 Plataforma esportiva privada para clubes, elenco e video. O app e focado em
-analise de jogos, treinos e biblioteca de video; o acesso de usuarios acontece
-somente por convite enviado por admin ou treinador.
+analise de jogos, treinos e biblioteca de video; usuarios podem criar conta e
+pedir entrada em um clube ou entrar diretamente por convite enviado por admin ou
+treinador.
 
 ## Stack
 
@@ -16,11 +17,12 @@ somente por convite enviado por admin ou treinador.
 ## Fluxo principal
 
 1. O admin global cria o clube inicial.
-2. Admins e treinadores do clube criam convites em `Configuracoes`.
-3. O convidado recebe um codigo/link de convite e cria a conta por `/cadastro`.
-4. O convite define o clube e a funcao inicial do usuario.
-5. Nao existe busca publica de clubes nem solicitacao aberta para entrar em times.
-6. Depois de entrar em um clube, a funcao efetiva do usuario passa a ser definida dentro daquele clube.
+2. Usuarios podem criar conta sem convite e solicitar autorizacao para entrar em um clube.
+3. Admins e treinadores do clube podem aprovar pedidos de entrada.
+4. Admins e treinadores tambem podem criar convites em `Configuracoes do clube`.
+5. O convidado recebe um codigo/link de convite e cria a conta por `/cadastro`.
+6. Quando ha convite valido, o convite define o clube e a funcao inicial do usuario, e a entrada acontece direto.
+7. Depois de entrar em um clube, a funcao efetiva do usuario passa a ser definida dentro daquele clube.
 
 ## Funcoes e permissoes
 
@@ -36,7 +38,8 @@ Regras importantes:
 - O ultimo admin nao pode sair do clube nem ser alterado para outra funcao.
 - Apenas admin de clube ou admin global pode excluir um clube.
 - Apenas admin global pode criar clubes.
-- Cadastro sem convite e bloqueado, exceto emails de admin global em `GLOBAL_ADMIN_EMAILS`.
+- Cadastro sem convite e permitido, mas o usuario fica sem clube ate ter um pedido de entrada aprovado.
+- Cadastro com convite valido vincula o usuario diretamente ao clube e a funcao do convite.
 - Treinador pode convidar atletas e treinadores; apenas admin pode convidar admins.
 - Atleta pode alterar apenas seus proprios campos esportivos: apelido, camisa, setor e posicao.
 - Treinador e admin nao exibem campos de atleta como setor, posicao, camisa e apelido.
@@ -69,7 +72,7 @@ Pagina `Clube > Meu clube`:
 - Permite solicitar troca de funcao.
 - Permite sair do time, respeitando a regra do ultimo admin.
 
-Pagina `Configuracoes` (`/club-manage`):
+Pagina `Configuracoes do clube` (`/club-manage`):
 
 - Permite criar e cancelar convites de entrada.
 - Mostra convites pendentes com codigo e link de cadastro.
@@ -105,7 +108,7 @@ Frontend:
 
 - `/` feed inicial.
 - `/time` meu clube.
-- `/club-manage` configuracoes.
+- `/club-manage` configuracoes do clube.
 - `/configuracoes-da-conta` configuracoes de conta.
 - `/upload` upload de videos.
 - `/biblioteca` biblioteca de videos.

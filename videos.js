@@ -30,6 +30,311 @@ function normalizeTags(raw) {
   return parseTags(raw);
 }
 
+let videoProcessingQueue = Promise.resolve();
+
+function enqueueVideoProcessing(task) {
+  const next = videoProcessingQueue.then(task, task);
+  videoProcessingQueue = next.catch((error) => {
+    console.error('[video-processing] job falhou fora do fluxo esperado', error);
+  });
+  return next;
+}
+
+function processingOperationLabel(operation) {
+  return operation === 'long-cut' ? 'corte longo' : 'corte';
+}
+
+function processingUser(user) {
+  return {
+    id: safeText(user?.id, 100),
+    name: safeText(user?.name, 120) || safeText(user?.email, 160) || 'outro usuario',
+    email: safeText(user?.email, 160).toLowerCase()
+  };
+}
+
+function activeProcessing(video) {
+  return video?.processing && typeof video.processing === 'object' && ['queued', 'processing'].includes(video.processing.status);
+}
+
+function processingLockedMessage(video) {
+  const name = safeText(video?.processing?.requestedBy?.name, 120) || 'outro usuario';
+  return `Video ja esta sendo editado por ${name}.`;
+}
+
+function processingLockResponse(res, video) {
+  jsonResponse(res, 409, {
+    error: processingLockedMessage(video),
+    processing: video.processing || null
+  });
+}
+
+function processingMetadata({ id, operation, user, status = 'queued' }) {
+  const now = new Date().toISOString();
+  const label = processingOperationLabel(operation);
+  return {
+    id,
+    operation,
+    status,
+    message: `Processando ${label}.`,
+    requestedBy: processingUser(user),
+    startedAt: now,
+    updatedAt: now
+  };
+}
+
+function videoUrl(storageName, teamId = '') {
+  return `/videos/${encodeURIComponent(storageName)}${teamId ? `?teamId=${encodeURIComponent(teamId)}` : ''}`;
+}
+
+async function cleanupVideoFiles(storageNames) {
+  await Promise.all(
+    [...new Set((Array.isArray(storageNames) ? storageNames : []).filter(Boolean))].map((storageName) =>
+      storageService.removeVideoFile(storageName).catch((error) => {
+        console.error('[video-processing] falha ao remover arquivo de processamento', {
+          storageName,
+          error: error.message
+        });
+      })
+    )
+  );
+}
+
+async function markProcessingRunning(job) {
+  await storageService.transaction(async (repository) => {
+    const videos = await repository.listVideos(job.scope);
+    const index = videos.findIndex((video) => video.id === job.videoId);
+    if (index === -1 || videos[index].processing?.id !== job.id) {
+      return null;
+    }
+
+    videos[index] = {
+      ...videos[index],
+      processing: {
+        ...videos[index].processing,
+        status: 'processing',
+        updatedAt: new Date().toISOString()
+      }
+    };
+    await repository.saveVideos(videos, job.scope);
+    return videos[index];
+  });
+}
+
+async function markProcessingFailed(job, error, createdStorageNames = []) {
+  console.error('[video-processing] falha no job de video', {
+    jobId: job.id,
+    videoId: job.videoId,
+    operation: job.operation,
+    error: error.message
+  });
+
+  await cleanupVideoFiles(createdStorageNames);
+
+  await storageService.transaction(async (repository) => {
+    const videos = await repository.listVideos(job.scope);
+    const index = videos.findIndex((video) => video.id === job.videoId);
+    if (index === -1 || videos[index].processing?.id !== job.id) {
+      return null;
+    }
+
+    const nextVideo = {
+      ...videos[index],
+      processing: null,
+      processingError: {
+        operation: job.operation,
+        message: 'Falha ao processar o video.',
+        failedAt: new Date().toISOString(),
+        requestedBy: job.requestedBy
+      },
+      updatedAt: new Date().toISOString()
+    };
+
+    delete nextVideo.processing;
+    videos[index] = nextVideo;
+    await repository.saveVideos(videos, job.scope);
+    return nextVideo;
+  });
+}
+
+async function runTrimProcessingJob(job) {
+  const createdStorageNames = [];
+  try {
+    await markProcessingRunning(job);
+    const extension = path.extname(job.sourceStorageName) || '.mp4';
+    const outputStorageName = `${randomUUID()}${extension}`;
+    createdStorageNames.push(outputStorageName);
+    const trimmedFile = await storageService.extractVideoClipFile(job.sourceStorageName, outputStorageName, {
+      start: job.start,
+      end: job.end
+    });
+
+    const finalized = await storageService.transaction(async (repository) => {
+      const videos = await repository.listVideos(job.scope);
+      const index = videos.findIndex((video) => video.id === job.videoId);
+      if (index === -1 || videos[index].processing?.id !== job.id || videos[index].storageName !== job.sourceStorageName) {
+        return { committed: false };
+      }
+
+      const now = new Date().toISOString();
+      const nextVideo = {
+        ...videos[index],
+        storageName: outputStorageName,
+        url: `${videoUrl(outputStorageName, job.scope.teamId || '')}${job.scope.teamId ? '&' : '?'}v=${Date.now()}`,
+        size: trimmedFile.size,
+        duration: Math.max(1, Math.round(job.end - job.start)),
+        processing: null,
+        processingError: null,
+        updatedAt: now
+      };
+      delete nextVideo.processing;
+      delete nextVideo.processingError;
+      videos[index] = nextVideo;
+      await repository.saveVideos(videos, job.scope);
+      return { committed: true };
+    });
+
+    if (!finalized.committed) {
+      await cleanupVideoFiles(createdStorageNames);
+      return;
+    }
+
+    await cleanupVideoFiles([job.sourceStorageName]);
+  } catch (error) {
+    await markProcessingFailed(job, error, createdStorageNames);
+  }
+}
+
+async function runLongCutProcessingJob(job) {
+  const createdStorageNames = [];
+  try {
+    await markProcessingRunning(job);
+    const extension = path.extname(job.sourceStorageName) || path.extname(job.originalName) || '.mp4';
+    const now = new Date().toISOString();
+    const createdClips = [];
+
+    for (const [clipIndex, clip] of job.clips.entries()) {
+      const clipId = randomUUID();
+      const storageName = `${clipId}${extension}`;
+      const clipFile = await storageService.extractVideoClipFile(job.sourceStorageName, storageName, clip);
+      const clipNumber = String(clipIndex + 1).padStart(2, '0');
+      createdStorageNames.push(storageName);
+      createdClips.push({
+        ...job.sourceVideo,
+        id: clipId,
+        title: `${job.sourceVideo.title} - Clipe ${clipNumber}`,
+        originalName: `${path.basename(job.originalName || job.sourceStorageName, extension)}-clipe-${clipNumber}${extension}`,
+        storageName,
+        url: videoUrl(storageName, job.scope.teamId || ''),
+        size: clipFile.size,
+        duration: Math.max(1, Math.round(clip.end - clip.start)),
+        notes: safeText(`Corte ${formatRangeLabel(clip.start, clip.end)}`, 500),
+        processing: null,
+        processingError: null,
+        createdAt: now,
+        updatedAt: now
+      });
+    }
+
+    let remainingStorageName = '';
+    let remainingFile = null;
+    if (job.remainingRanges.length) {
+      remainingStorageName = `${randomUUID()}${extension}`;
+      createdStorageNames.push(remainingStorageName);
+      remainingFile = await storageService.buildRemainingVideoOutputFile(job.sourceStorageName, remainingStorageName, job.remainingRanges);
+    }
+
+    const finalized = await storageService.transaction(async (repository) => {
+      const videos = await repository.listVideos(job.scope);
+      const index = videos.findIndex((video) => video.id === job.videoId);
+      if (index === -1 || videos[index].processing?.id !== job.id || videos[index].storageName !== job.sourceStorageName) {
+        return { committed: false };
+      }
+
+      const currentVideo = videos[index];
+      if (remainingFile && remainingStorageName) {
+        const nextVideo = {
+          ...currentVideo,
+          title: `${currentVideo.title} - Restante`,
+          storageName: remainingStorageName,
+          url: `${videoUrl(remainingStorageName, job.scope.teamId || '')}${job.scope.teamId ? '&' : '?'}v=${Date.now()}`,
+          size: remainingFile.size,
+          duration: Math.max(1, Math.round(job.remainingDuration)),
+          processing: null,
+          processingError: null,
+          updatedAt: now
+        };
+        delete nextVideo.processing;
+        delete nextVideo.processingError;
+        videos.splice(index, 1, nextVideo, ...createdClips.map((clip) => {
+          const nextClip = {
+            ...clip,
+            playlistId: currentVideo.playlistId,
+            playlistName: currentVideo.playlistName
+          };
+          delete nextClip.processing;
+          delete nextClip.processingError;
+          return nextClip;
+        }));
+      } else {
+        videos.splice(index, 1, ...createdClips.map((clip) => {
+          const nextClip = {
+            ...clip,
+            playlistId: currentVideo.playlistId,
+            playlistName: currentVideo.playlistName
+          };
+          delete nextClip.processing;
+          delete nextClip.processingError;
+          return nextClip;
+        }));
+        await repository.deleteAnnotations(job.videoId);
+      }
+
+      await repository.saveVideos(videos, job.scope);
+      return { committed: true };
+    });
+
+    if (!finalized.committed) {
+      await cleanupVideoFiles(createdStorageNames);
+      return;
+    }
+
+    await cleanupVideoFiles([job.sourceStorageName]);
+  } catch (error) {
+    await markProcessingFailed(job, error, createdStorageNames);
+  }
+}
+
+async function recoverInterruptedVideoProcessing() {
+  await storageService.transaction(async (repository) => {
+    const videos = await repository.listVideos();
+    let changed = false;
+    const nextVideos = videos.map((video) => {
+      if (!activeProcessing(video)) {
+        return video;
+      }
+
+      changed = true;
+      const nextVideo = {
+        ...video,
+        processing: null,
+        processingError: {
+          operation: safeText(video.processing?.operation, 40),
+          message: 'Processamento interrompido antes de concluir.',
+          failedAt: new Date().toISOString(),
+          requestedBy: video.processing?.requestedBy || {}
+        },
+        updatedAt: new Date().toISOString()
+      };
+      delete nextVideo.processing;
+      return nextVideo;
+    });
+
+    if (changed) {
+      await repository.saveVideos(nextVideos);
+    }
+  });
+}
+
 async function handleListVideos(req, res) {
   const teamId = getTeamIdFromRequest(req);
   const access = await authorizeRoles(req, res, teamId, ['admin', 'treinador', 'atleta']);
@@ -158,12 +463,20 @@ async function handleDeleteVideo(req, res, id) {
   }
   const scope = accessScope(access);
   const result = await storageService.transaction(async (repository) => {
-    const video = await repository.deleteVideo(id, scope);
+    const videos = await repository.listVideos(scope);
+    const index = videos.findIndex((video) => video.id === id);
 
-    if (!video) {
+    if (index === -1) {
       return { found: false };
     }
 
+    const video = videos[index];
+    if (activeProcessing(video)) {
+      return { found: true, locked: true, video };
+    }
+
+    videos.splice(index, 1);
+    await repository.saveVideos(videos, scope);
     await repository.deleteAnnotations(id);
 
     return {
@@ -174,6 +487,11 @@ async function handleDeleteVideo(req, res, id) {
 
   if (!result.found) {
     jsonResponse(res, 404, { error: 'Video nao encontrado.' });
+    return;
+  }
+
+  if (result.locked) {
+    processingLockResponse(res, result.video);
     return;
   }
 
@@ -210,6 +528,10 @@ async function handleUpdateVideo(req, res, id) {
 
     if (index === -1) {
       return { found: false };
+    }
+
+    if (activeProcessing(videos[index])) {
+      return { found: true, locked: true, video: videos[index] };
     }
 
     const playlists = await repository.listPlaylists(scope);
@@ -256,6 +578,11 @@ async function handleUpdateVideo(req, res, id) {
 
   if (!result.found) {
     jsonResponse(res, 404, { error: 'Video nao encontrado.' });
+    return;
+  }
+
+  if (result.locked) {
+    processingLockResponse(res, result.video);
     return;
   }
 
@@ -306,6 +633,10 @@ async function handleTrimVideo(req, res, id) {
     }
 
     const video = videos[index];
+    if (activeProcessing(video)) {
+      return { found: true, locked: true, video };
+    }
+
     const metadataDuration = Number(video.duration);
     const payloadDuration = Number(payload.duration);
     const currentDuration =
@@ -318,22 +649,37 @@ async function handleTrimVideo(req, res, id) {
       return { found: true, invalidRange: true };
     }
 
-    const trimmedFile = await storageService.trimVideoFile(video.storageName, { start, end: safeEnd });
-    const now = new Date().toISOString();
+    const jobId = randomUUID();
+    const processing = processingMetadata({
+      id: jobId,
+      operation: 'trim',
+      user: access.user
+    });
     const nextVideo = {
       ...video,
-      size: trimmedFile.size,
-      duration: Math.max(1, Math.round(safeEnd - start)),
-      url: `/videos/${encodeURIComponent(video.storageName)}?${scope.teamId ? `teamId=${encodeURIComponent(scope.teamId)}&` : ''}v=${Date.now()}`,
-      updatedAt: now
+      processing,
+      processingError: null,
+      updatedAt: new Date().toISOString()
     };
-
+    delete nextVideo.processingError;
     videos[index] = nextVideo;
     await repository.saveVideos(videos, scope);
 
     return {
       found: true,
       invalidRange: false,
+      job: {
+        id: jobId,
+        operation: 'trim',
+        videoId: video.id,
+        sourceStorageName: video.storageName,
+        originalName: video.originalName,
+        sourceUpdatedAt: video.updatedAt,
+        start,
+        end: safeEnd,
+        scope,
+        requestedBy: processing.requestedBy
+      },
       video: videoSummary(nextVideo, playlists)
     };
   });
@@ -347,12 +693,27 @@ async function handleTrimVideo(req, res, id) {
     return;
   }
 
+  if (result.locked) {
+    processingLockResponse(res, result.video);
+    return;
+  }
+
   if (result.invalidRange) {
     jsonResponse(res, 400, { error: 'Intervalo de corte invalido.' });
     return;
   }
 
-  jsonResponse(res, 200, { video: result.video });
+  enqueueVideoProcessing(() => runTrimProcessingJob(result.job));
+
+  jsonResponse(res, 202, {
+    job: {
+      id: result.job.id,
+      operation: result.job.operation,
+      videoId: result.job.videoId,
+      status: 'queued'
+    },
+    video: result.video
+  });
 }
 
 function formatSecondsLabel(seconds) {
@@ -468,6 +829,10 @@ async function handleLongCutVideo(req, res, id) {
     }
 
     const video = videos[index];
+    if (activeProcessing(video)) {
+      return { found: true, locked: true, video };
+    }
+
     const metadataDuration = Number(video.duration);
     const payloadDuration = Number(payload.duration);
     const currentDuration =
@@ -480,69 +845,43 @@ async function handleLongCutVideo(req, res, id) {
       return { found: true, invalidClips: true };
     }
 
-    const extension = path.extname(video.storageName) || path.extname(video.originalName) || '.mp4';
-    const now = new Date().toISOString();
-    const createdClips = [];
-    const createdStorageNames = [];
+    const remainingRanges = getRemainingRangesAfterClips(clips, currentDuration);
+    const remainingDuration = rangesDuration(remainingRanges);
+    const jobId = randomUUID();
+    const processing = processingMetadata({
+      id: jobId,
+      operation: 'long-cut',
+      user: access.user
+    });
+    const nextVideo = {
+      ...video,
+      processing,
+      processingError: null,
+      updatedAt: new Date().toISOString()
+    };
+    delete nextVideo.processingError;
+    videos[index] = nextVideo;
+    await repository.saveVideos(videos, scope);
 
-    try {
-      for (const [clipIndex, clip] of clips.entries()) {
-        const clipId = randomUUID();
-        const storageName = `${clipId}${extension}`;
-        const clipFile = await storageService.extractVideoClipFile(video.storageName, storageName, clip);
-        const clipNumber = String(clipIndex + 1).padStart(2, '0');
-        const clipVideo = {
-          ...video,
-          id: clipId,
-          title: `${video.title} - Clipe ${clipNumber}`,
-          originalName: `${path.basename(video.originalName || video.storageName, extension)}-clipe-${clipNumber}${extension}`,
-          storageName,
-          url: `/videos/${encodeURIComponent(storageName)}${scope.teamId ? `?teamId=${encodeURIComponent(scope.teamId)}` : ''}`,
-          size: clipFile.size,
-          duration: Math.max(1, Math.round(clip.end - clip.start)),
-          notes: safeText(`Corte ${formatRangeLabel(clip.start, clip.end)}`, 500),
-          createdAt: now,
-          updatedAt: now
-        };
-
-        createdStorageNames.push(storageName);
-        createdClips.push(clipVideo);
-      }
-
-      const remainingRanges = getRemainingRangesAfterClips(clips, currentDuration);
-      const remainingDuration = rangesDuration(remainingRanges);
-      let nextVideo = null;
-
-      if (remainingRanges.length) {
-        const remainingFile = await storageService.buildRemainingVideoFile(video.storageName, remainingRanges);
-        nextVideo = {
-          ...video,
-          title: `${video.title} - Restante`,
-          size: remainingFile.size,
-          duration: Math.max(1, Math.round(remainingDuration)),
-          url: `/videos/${encodeURIComponent(video.storageName)}?${scope.teamId ? `teamId=${encodeURIComponent(scope.teamId)}&` : ''}v=${Date.now()}`,
-          updatedAt: now
-        };
-        videos.splice(index, 1, nextVideo, ...createdClips);
-      } else {
-        videos.splice(index, 1, ...createdClips);
-        await repository.deleteAnnotations(video.id);
-        await storageService.removeVideoFile(video.storageName);
-      }
-
-      await repository.saveVideos(videos, scope);
-
-      return {
-        found: true,
-        invalidClips: false,
-        playlistId: video.playlistId,
-        video: nextVideo ? videoSummary(nextVideo, playlists) : null,
-        clips: createdClips.map((clip) => videoSummary(clip, playlists))
-      };
-    } catch (error) {
-      await Promise.all(createdStorageNames.map((storageName) => storageService.removeVideoFile(storageName)));
-      throw error;
-    }
+    return {
+      found: true,
+      invalidClips: false,
+      playlistId: video.playlistId,
+      job: {
+        id: jobId,
+        operation: 'long-cut',
+        videoId: video.id,
+        sourceStorageName: video.storageName,
+        originalName: video.originalName,
+        sourceVideo: video,
+        clips,
+        remainingRanges,
+        remainingDuration,
+        scope,
+        requestedBy: processing.requestedBy
+      },
+      video: videoSummary(nextVideo, playlists)
+    };
   });
 
   if (result.unauthorized) {
@@ -554,15 +893,28 @@ async function handleLongCutVideo(req, res, id) {
     return;
   }
 
+  if (result.locked) {
+    processingLockResponse(res, result.video);
+    return;
+  }
+
   if (result.invalidClips) {
     jsonResponse(res, 400, { error: 'Informe pelo menos um clipe valido para salvar.' });
     return;
   }
 
-  jsonResponse(res, 200, {
+  enqueueVideoProcessing(() => runLongCutProcessingJob(result.job));
+
+  jsonResponse(res, 202, {
     playlistId: result.playlistId,
+    job: {
+      id: result.job.id,
+      operation: result.job.operation,
+      videoId: result.job.videoId,
+      status: 'queued'
+    },
     video: result.video,
-    clips: result.clips
+    clips: []
   });
 }
 
@@ -572,5 +924,6 @@ module.exports = {
   handleDeleteVideo,
   handleUpdateVideo,
   handleTrimVideo,
-  handleLongCutVideo
+  handleLongCutVideo,
+  recoverInterruptedVideoProcessing
 };

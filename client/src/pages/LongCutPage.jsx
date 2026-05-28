@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Icon } from '../components/Icons';
 import { authFetch } from '../lib/auth';
-import { formatDuration } from '../lib/utils';
+import { formatDuration, isVideoProcessing, videoProcessingMessage } from '../lib/utils';
 
 const HOLD_SHORTCUT_DELAY_MS = 220;
 const FORWARD_HOLD_RATE = 2.5;
@@ -663,6 +663,11 @@ export function LongCutPage({ showToast }) {
       return;
     }
 
+    if (isVideoProcessing(selectedVideo)) {
+      showToast(videoProcessingMessage(selectedVideo));
+      return;
+    }
+
     if (!plannedClips.length) {
       showToast('Crie pelo menos um clipe antes de salvar.');
       return;
@@ -690,7 +695,7 @@ export function LongCutPage({ showToast }) {
       }
 
       const playlistId = payload.playlistId || selectedVideo.playlistId || '';
-      showToast('Alteracoes salvas.');
+      showToast(response.status === 202 ? 'Corte longo iniciado. O video continua disponivel para assistir e anotar.' : 'Alteracoes salvas.');
       navigate(playlistId ? `/biblioteca?playlist=${encodeURIComponent(playlistId)}` : '/biblioteca');
     } catch (error) {
       showToast(error.message);
@@ -777,14 +782,19 @@ export function LongCutPage({ showToast }) {
 
         <aside className="space-y-5">
           <div className="tactical-panel px-5 py-5">
-            <button type="button" className="tactical-button w-full" onClick={createPlannedClip} disabled={!selectedVideo}>
+            {isVideoProcessing(selectedVideo) ? (
+              <div className="mb-3 rounded-xl border border-tactical-pitch/25 bg-tactical-pitch/10 px-3 py-3 text-sm font-black text-tactical-ink">
+                {videoProcessingMessage(selectedVideo)}
+              </div>
+            ) : null}
+            <button type="button" className="tactical-button w-full" onClick={createPlannedClip} disabled={!selectedVideo || isVideoProcessing(selectedVideo)}>
               Criar clipe
             </button>
             <button
               type="button"
               className="tactical-button-secondary mt-3 w-full"
               onClick={saveLongCutChanges}
-              disabled={!selectedVideo || isSaving || plannedClips.length === 0}
+              disabled={!selectedVideo || isVideoProcessing(selectedVideo) || isSaving || plannedClips.length === 0}
             >
               {isSaving ? 'Salvando' : 'Salvar alteracoes'}
             </button>

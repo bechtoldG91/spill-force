@@ -20,7 +20,7 @@ import {
   timelineProgressBackground
 } from '../components/player/playerUtils';
 import { authFetch } from '../lib/auth';
-import { cn, formatBytes, formatDate, formatDuration, kindLabel } from '../lib/utils';
+import { cn, formatBytes, formatDate, formatDuration, isVideoProcessing, kindLabel, videoProcessingMessage } from '../lib/utils';
 
 const TRIM_START_COLOR = '#ffd400';
 const TRIM_END_COLOR = '#ff7a1a';
@@ -121,6 +121,8 @@ export function LibraryPage({ showToast }) {
   );
 
   const allVisibleVideosSelected = filteredVideos.length > 0 && selectedVisibleVideoIds.length === filteredVideos.length;
+  const selectedHasProcessing = selectedVisibleVideoIds.some((videoId) => isVideoProcessing(videos.find((video) => video.id === videoId)));
+  const hasProcessingVideos = useMemo(() => videos.some(isVideoProcessing), [videos]);
   const availableMovePlaylists = useMemo(
     () => playlists.filter((playlist) => playlist.id !== selectedPlaylistId),
     [playlists, selectedPlaylistId]
@@ -231,6 +233,42 @@ export function LibraryPage({ showToast }) {
     frameId = window.requestAnimationFrame(syncPlaybackTime);
     return () => window.cancelAnimationFrame(frameId);
   }, [isPaused, selectedVideoId]);
+
+  useEffect(() => {
+    if (!hasProcessingVideos) {
+      return undefined;
+    }
+
+    let ignore = false;
+    async function refreshProcessingVideos() {
+      try {
+        const [videosResponse, playlistsResponse] = await Promise.all([authFetch('/api/videos'), authFetch('/api/playlists')]);
+        if (!videosResponse.ok || !playlistsResponse.ok) {
+          return;
+        }
+
+        const videosPayload = await videosResponse.json();
+        const playlistsPayload = await playlistsResponse.json();
+        if (ignore) {
+          return;
+        }
+
+        const nextVideos = videosPayload.videos || [];
+        setVideos(nextVideos);
+        setPlaylists(playlistsPayload.playlists || []);
+        setSelectedVideoId((current) => (nextVideos.some((video) => video.id === current) ? current : nextVideos[0]?.id || null));
+        setSelectedVideoIds((current) => current.filter((videoId) => nextVideos.some((video) => video.id === videoId)));
+      } catch {
+        // A proxima rodada tenta novamente.
+      }
+    }
+
+    const interval = window.setInterval(refreshProcessingVideos, 3000);
+    return () => {
+      ignore = true;
+      window.clearInterval(interval);
+    };
+  }, [hasProcessingVideos]);
 
   useWindowShortcuts({
     onKeyDown: handleKeyboardShortcut,
@@ -633,6 +671,11 @@ export function LibraryPage({ showToast }) {
       return;
     }
 
+    if (isVideoProcessing(selectedVideo)) {
+      showToast(videoProcessingMessage(selectedVideo));
+      return;
+    }
+
     navigate(`/corte-longo?video=${selectedVideo.id}`);
   }
 
@@ -643,6 +686,11 @@ export function LibraryPage({ showToast }) {
 
     if (!hasTrimStartMark && !hasTrimEndMark) {
       showToast('Marque inicio ou fim antes de cortar.');
+      return;
+    }
+
+    if (isVideoProcessing(selectedVideo)) {
+      showToast(videoProcessingMessage(selectedVideo));
       return;
     }
 
@@ -669,6 +717,17 @@ export function LibraryPage({ showToast }) {
 
       if (!response.ok) {
         throw new Error(payload.error || 'Nao foi possivel cortar o video.');
+      }
+
+      if (response.status === 202) {
+        if (payload.video) {
+          setVideos((current) => current.map((video) => (video.id === payload.video.id ? payload.video : video)));
+        }
+        setHasTrimStartMark(false);
+        setHasTrimEndMark(false);
+        setIsPaused(true);
+        showToast('Corte iniciado. O video continua disponivel para assistir e anotar.');
+        return;
       }
 
       const nextVideo = payload.video;
@@ -728,6 +787,12 @@ export function LibraryPage({ showToast }) {
 
   async function handleDeletePlaylist(playlist) {
     if (!playlist || isDeletingPlaylist) {
+      return;
+    }
+
+    const lockedVideo = videos.find((video) => video.playlistId === playlist.id && isVideoProcessing(video));
+    if (lockedVideo) {
+      showToast(videoProcessingMessage(lockedVideo));
       return;
     }
 
@@ -793,6 +858,12 @@ export function LibraryPage({ showToast }) {
       return;
     }
 
+    const lockedVideo = videos.find((video) => selectedVisibleVideoIds.includes(video.id) && isVideoProcessing(video));
+    if (lockedVideo) {
+      showToast(videoProcessingMessage(lockedVideo));
+      return;
+    }
+
     setIsDeletingSelectedVideos(true);
 
     try {
@@ -831,6 +902,12 @@ export function LibraryPage({ showToast }) {
 
   async function handleMoveSelectedVideos() {
     if (!selectedVisibleVideoIds.length || !bulkPlaylistTargetId || isMovingSelectedVideos || isDeletingSelectedVideos) {
+      return;
+    }
+
+    const lockedVideo = videos.find((video) => selectedVisibleVideoIds.includes(video.id) && isVideoProcessing(video));
+    if (lockedVideo) {
+      showToast(videoProcessingMessage(lockedVideo));
       return;
     }
 
@@ -926,7 +1003,7 @@ export function LibraryPage({ showToast }) {
                   <button
                     type="button"
                     onClick={handleMoveSelectedVideos}
-                    disabled={!selectedVisibleVideoIds.length || !bulkPlaylistTargetId || isDeletingSelectedVideos || isMovingSelectedVideos}
+                    disabled={!selectedVisibleVideoIds.length || selectedHasProcessing || !bulkPlaylistTargetId || isDeletingSelectedVideos || isMovingSelectedVideos}
                     className="inline-flex h-9 min-w-0 items-center justify-center rounded-xl border border-tactical-pitch/20 bg-tactical-pitch/10 px-3 text-[0.62rem] font-black uppercase tracking-[0.16em] text-tactical-pitch transition hover:bg-tactical-pitch hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {isMovingSelectedVideos ? 'Movendo' : 'Mover'}
@@ -934,7 +1011,7 @@ export function LibraryPage({ showToast }) {
                   <button
                     type="button"
                     onClick={handleDeleteSelectedVideos}
-                    disabled={!selectedVisibleVideoIds.length || isDeletingSelectedVideos || isMovingSelectedVideos}
+                    disabled={!selectedVisibleVideoIds.length || selectedHasProcessing || isDeletingSelectedVideos || isMovingSelectedVideos}
                     className="inline-flex h-9 min-w-0 items-center justify-center rounded-xl border border-tactical-pitch/20 bg-tactical-pitch/10 px-3 text-[0.62rem] font-black uppercase tracking-[0.16em] text-tactical-pitch transition hover:border-red-400 hover:bg-red-500/12 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {isDeletingSelectedVideos ? 'Excluindo' : 'Excluir'}
@@ -944,7 +1021,7 @@ export function LibraryPage({ showToast }) {
                 <button
                   type="button"
                   onClick={handleDeleteSelectedVideos}
-                  disabled={!selectedVisibleVideoIds.length || isDeletingSelectedVideos || isMovingSelectedVideos}
+                  disabled={!selectedVisibleVideoIds.length || selectedHasProcessing || isDeletingSelectedVideos || isMovingSelectedVideos}
                   className="inline-flex h-9 w-full items-center justify-center rounded-xl border border-tactical-pitch/20 bg-tactical-pitch/10 px-3 text-[0.62rem] font-black uppercase tracking-[0.16em] text-tactical-pitch transition hover:border-red-400 hover:bg-red-500/12 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {isDeletingSelectedVideos ? 'Excluindo' : 'Excluir selecionados'}
@@ -963,6 +1040,7 @@ export function LibraryPage({ showToast }) {
 
             {playlists.map((playlist) => {
               const playlistVideos = videosByPlaylist[playlist.id] || [];
+              const playlistHasProcessing = playlistVideos.some(isVideoProcessing);
               const isExpanded = expandedPlaylistIds.includes(playlist.id);
               const isActivePlaylist = playlist.id === selectedPlaylistId;
 
@@ -1011,7 +1089,7 @@ export function LibraryPage({ showToast }) {
                       type="button"
                       onClick={() => handleDeletePlaylist(playlist)}
                       aria-label={`Excluir playlist ${playlist.name}`}
-                      disabled={isDeletingPlaylist || isDeletingSelectedVideos || isMovingSelectedVideos}
+                      disabled={playlistHasProcessing || isDeletingPlaylist || isDeletingSelectedVideos || isMovingSelectedVideos}
                       className="group inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-white/70 transition hover:border-red-400 hover:bg-red-500/12 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-45"
                     >
                       <Icon name="trash" className="h-4 w-4 transition-colors group-hover:text-red-400" />
@@ -1168,6 +1246,12 @@ export function LibraryPage({ showToast }) {
 
             {selectedVideo ? (
               <>
+                {isVideoProcessing(selectedVideo) ? (
+                  <div className="rounded-2xl border border-tactical-pitch/25 bg-tactical-pitch/10 px-4 py-3 text-sm font-black text-tactical-ink">
+                    {videoProcessingMessage(selectedVideo)} Voce ainda pode assistir e fazer anotacoes.
+                  </div>
+                ) : null}
+
                 <div className="rounded-2xl border border-tactical-line/35 bg-tactical-bone/50 px-4 py-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
@@ -1195,7 +1279,7 @@ export function LibraryPage({ showToast }) {
                           type="button"
                           className="tactical-button min-h-10 px-4"
                           onClick={handleTrimVideo}
-                          disabled={isTrimming || (!hasTrimStartMark && !hasTrimEndMark) || effectiveTrimEnd <= effectiveTrimStart}
+                          disabled={isTrimming || isVideoProcessing(selectedVideo) || (!hasTrimStartMark && !hasTrimEndMark) || effectiveTrimEnd <= effectiveTrimStart}
                         >
                           {isTrimming ? 'Cortando' : 'Cortar'}
                         </button>
@@ -1206,6 +1290,7 @@ export function LibraryPage({ showToast }) {
                           type="button"
                           className="inline-flex min-h-10 items-center justify-center rounded-xl border border-tactical-ember/25 bg-tactical-ember/10 px-3 text-sm font-black uppercase tracking-[0.18em] text-tactical-ink transition hover:border-tactical-ember hover:bg-tactical-ember hover:text-white"
                           onClick={openLongCutPage}
+                          disabled={isVideoProcessing(selectedVideo)}
                         >
                           Corte longo
                         </button>

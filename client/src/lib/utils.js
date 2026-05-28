@@ -89,3 +89,15 @@ export function createId() {
 
   return `id-${Date.now()}-${Math.round(Math.random() * 1e6)}`;
 }
+
+export function isVideoProcessing(video) {
+  return Boolean(video?.processing && ['queued', 'processing'].includes(video.processing.status));
+}
+
+export function videoProcessingUserName(video) {
+  return video?.processing?.requestedBy?.name || video?.processing?.requestedBy?.email || 'outro usuario';
+}
+
+export function videoProcessingMessage(video) {
+  return `Video ja esta sendo editado por ${videoProcessingUserName(video)}.`;
+}
