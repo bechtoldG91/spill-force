@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Icon } from '../components/Icons';
 import { authFetch } from '../lib/auth';
-import { formatDuration, isVideoProcessing, videoProcessingMessage } from '../lib/utils';
+import { formatDuration, isVideoProcessing, isVideoProcessingByOtherUser, videoProcessingMessage } from '../lib/utils';
 
 const HOLD_SHORTCUT_DELAY_MS = 220;
 const FORWARD_HOLD_RATE = 2.5;
@@ -15,6 +15,11 @@ const REVERSE_SLOW_MIN_STEP_SECONDS = 0.08;
 const REVERSE_FAST_MAX_STEP_SECONDS = 0.22;
 const REVERSE_FAST_MIN_STEP_SECONDS = 0.12;
 const REVERSE_SEEK_EPSILON_SECONDS = 0.004;
+const SHORTCUTS = [
+  ['Shift + S', 'Criar clipe'],
+  ['Segurar direita', 'Avancar rapido'],
+  ['Segurar esquerda', 'Voltar lento']
+];
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -51,7 +56,7 @@ function createClipId() {
   return `clip-${Date.now()}-${Math.round(Math.random() * 100000)}`;
 }
 
-export function LongCutPage({ showToast }) {
+export function LongCutPage({ showToast, authUser }) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const queryVideoId = searchParams.get('video');
@@ -664,7 +669,7 @@ export function LongCutPage({ showToast }) {
     }
 
     if (isVideoProcessing(selectedVideo)) {
-      showToast(videoProcessingMessage(selectedVideo));
+      showToast(videoProcessingMessage(selectedVideo, authUser));
       return;
     }
 
@@ -707,99 +712,118 @@ export function LongCutPage({ showToast }) {
   return (
     <section className="mx-auto w-full max-w-[1280px] space-y-5">
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <div className="tactical-panel overflow-hidden">
-          <div className="relative aspect-video bg-black">
-            {selectedVideo ? (
-              <>
-                <video
-                  ref={videoRef}
-                  src={selectedVideo.url}
-                  playsInline
-                  preload="metadata"
-                  className="absolute inset-0 h-full w-full object-contain"
-                  onLoadedMetadata={(event) => {
-                    const nextDuration = Number.isFinite(event.currentTarget.duration)
-                      ? event.currentTarget.duration
-                      : selectedVideo.duration || 0;
-                    setDuration(nextDuration);
-                    setCurrentTime(event.currentTarget.currentTime || 0);
-                    setIsPaused(event.currentTarget.paused);
-                  }}
-                  onTimeUpdate={syncVideoTime}
-                  onSeeked={syncVideoTime}
-                  onPlay={() => setIsPaused(false)}
-                  onPause={(event) => {
-                    setIsPaused(true);
-                    syncVideoTime(event);
-                  }}
-                  onEnded={() => setIsPaused(true)}
-                />
+        <div className="space-y-5">
+          <div className="tactical-panel overflow-hidden">
+            <div className="relative aspect-video bg-black">
+              {selectedVideo ? (
+                <>
+                  <video
+                    ref={videoRef}
+                    src={selectedVideo.url}
+                    playsInline
+                    preload="metadata"
+                    className="absolute inset-0 h-full w-full object-contain"
+                    onLoadedMetadata={(event) => {
+                      const nextDuration = Number.isFinite(event.currentTarget.duration)
+                        ? event.currentTarget.duration
+                        : selectedVideo.duration || 0;
+                      setDuration(nextDuration);
+                      setCurrentTime(event.currentTarget.currentTime || 0);
+                      setIsPaused(event.currentTarget.paused);
+                    }}
+                    onTimeUpdate={syncVideoTime}
+                    onSeeked={syncVideoTime}
+                    onPlay={() => setIsPaused(false)}
+                    onPause={(event) => {
+                      setIsPaused(true);
+                      syncVideoTime(event);
+                    }}
+                    onEnded={() => setIsPaused(true)}
+                  />
 
-                <div className="absolute inset-x-0 bottom-0 z-20 h-12 bg-black/86 shadow-2xl">
-                  <div className="flex h-full items-stretch">
-                    <button
-                      type="button"
-                      aria-label={isPaused ? 'Reproduzir' : 'Pausar'}
-                      title={isPaused ? 'Reproduzir' : 'Pausar'}
-                      onClick={togglePlayback}
-                      className="grid h-full w-14 place-items-center bg-transparent text-white transition hover:bg-white/12 focus:outline-none"
-                    >
-                      <Icon name={isPaused ? 'play' : 'pause'} className="h-6 w-6" />
-                    </button>
-                    <div className="relative flex h-full min-w-[180px] flex-1 items-center px-4">
-                      <input
-                        className="timeline-slider timeline-slider-progress block"
-                        type="range"
-                        min="0"
-                        max="1000"
-                        step="1"
-                        value={displayDuration ? Math.round((displayCurrentTime / displayDuration) * 1000) : 0}
-                        onChange={(event) => handleSeek(event.target.value)}
-                        style={{ background: timelineBackground }}
-                      />
-                    </div>
-                    <div className="flex h-full shrink-0 items-center px-3 text-[0.68rem] font-black tabular-nums tracking-[0.12em] text-white/80">
-                      {formatPreciseTime(displayCurrentTime)} / {formatPreciseTime(displayDuration)}
+                  <div className="absolute inset-x-0 bottom-0 z-20 h-12 bg-black/86 shadow-2xl">
+                    <div className="flex h-full items-stretch">
+                      <button
+                        type="button"
+                        aria-label={isPaused ? 'Reproduzir' : 'Pausar'}
+                        title={isPaused ? 'Reproduzir' : 'Pausar'}
+                        onClick={togglePlayback}
+                        className="grid h-full w-14 place-items-center bg-transparent text-white transition hover:bg-white/12 focus:outline-none"
+                      >
+                        <Icon name={isPaused ? 'play' : 'pause'} className="h-6 w-6" />
+                      </button>
+                      <div className="relative flex h-full min-w-[180px] flex-1 items-center px-4">
+                        <input
+                          className="timeline-slider timeline-slider-progress block"
+                          type="range"
+                          min="0"
+                          max="1000"
+                          step="1"
+                          value={displayDuration ? Math.round((displayCurrentTime / displayDuration) * 1000) : 0}
+                          onChange={(event) => handleSeek(event.target.value)}
+                          style={{ background: timelineBackground }}
+                        />
+                      </div>
+                      <div className="flex h-full shrink-0 items-center px-3 text-[0.68rem] font-black tabular-nums tracking-[0.12em] text-white/80">
+                        {formatPreciseTime(displayCurrentTime)} / {formatPreciseTime(displayDuration)}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </>
-            ) : (
-              <div className="absolute inset-0 grid place-items-center bg-tactical-ink text-center text-white">
-                <div>
-                  <div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-white/10 text-tactical-pitch">
-                    <Icon name="film" className="h-7 w-7" />
+                </>
+              ) : (
+                <div className="absolute inset-0 grid place-items-center bg-tactical-ink text-center text-white">
+                  <div>
+                    <div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-white/10 text-tactical-pitch">
+                      <Icon name="film" className="h-7 w-7" />
+                    </div>
+                    <strong className="mt-4 block text-lg font-black uppercase tracking-[0.14em]">
+                      {loading ? 'Carregando video' : 'Nenhum video selecionado'}
+                    </strong>
                   </div>
-                  <strong className="mt-4 block text-lg font-black uppercase tracking-[0.14em]">
-                    {loading ? 'Carregando video' : 'Nenhum video selecionado'}
-                  </strong>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
 
+          <div className="tactical-panel px-5 py-5">
+            {isVideoProcessingByOtherUser(selectedVideo, authUser) ? (
+              <div className="mb-3 rounded-xl border border-tactical-pitch/25 bg-tactical-pitch/10 px-3 py-3 text-sm font-black text-tactical-ink">
+                {videoProcessingMessage(selectedVideo, authUser)}
+              </div>
+            ) : null}
+            <div className="grid gap-4 lg:grid-cols-[minmax(240px,0.55fr)_minmax(0,1fr)] lg:items-start">
+              <div className="grid gap-3">
+                <button type="button" className="tactical-button w-full" onClick={createPlannedClip} disabled={!selectedVideo || isVideoProcessing(selectedVideo)}>
+                  Criar clipe
+                </button>
+                <button
+                  type="button"
+                  className="tactical-button-secondary w-full"
+                  onClick={saveLongCutChanges}
+                  disabled={!selectedVideo || isVideoProcessing(selectedVideo) || isSaving || plannedClips.length === 0}
+                >
+                  {isSaving ? 'Salvando' : 'Salvar alteracoes'}
+                </button>
+              </div>
+
+              <div className="border-t border-tactical-ink/10 pt-4 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
+                <h2 className="text-xs font-black uppercase tracking-[0.18em] text-tactical-ink">Atalhos</h2>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-1">
+                  {SHORTCUTS.map(([keys, action]) => (
+                    <div key={keys} className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] items-center gap-2 text-xs">
+                      <span className="rounded-lg border border-tactical-ink/10 bg-tactical-bone px-2 py-1 font-black uppercase tracking-[0.1em] text-tactical-ink">
+                        {keys}
+                      </span>
+                      <span className="font-semibold text-tactical-ash">{action}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <aside className="space-y-5">
-          <div className="tactical-panel px-5 py-5">
-            {isVideoProcessing(selectedVideo) ? (
-              <div className="mb-3 rounded-xl border border-tactical-pitch/25 bg-tactical-pitch/10 px-3 py-3 text-sm font-black text-tactical-ink">
-                {videoProcessingMessage(selectedVideo)}
-              </div>
-            ) : null}
-            <button type="button" className="tactical-button w-full" onClick={createPlannedClip} disabled={!selectedVideo || isVideoProcessing(selectedVideo)}>
-              Criar clipe
-            </button>
-            <button
-              type="button"
-              className="tactical-button-secondary mt-3 w-full"
-              onClick={saveLongCutChanges}
-              disabled={!selectedVideo || isVideoProcessing(selectedVideo) || isSaving || plannedClips.length === 0}
-            >
-              {isSaving ? 'Salvando' : 'Salvar alteracoes'}
-            </button>
-          </div>
-
           <div className="tactical-panel overflow-hidden">
             <div className="flex items-center justify-between border-b border-tactical-ink/10 px-5 py-3">
               <h2 className="text-sm font-black uppercase tracking-[0.14em] text-tactical-ink">Clipes</h2>

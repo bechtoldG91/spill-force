@@ -19,7 +19,6 @@ const VIDEO_DIR = path.join(STORAGE_DIR, 'videos');
 const DATA_FILE = path.join(STORAGE_DIR, 'videos.json');
 const ANNOTATIONS_FILE = path.join(STORAGE_DIR, 'annotations.json');
 const PLAYLISTS_FILE = path.join(STORAGE_DIR, 'playlists.json');
-const ACCOUNT_FILE = path.join(STORAGE_DIR, 'account.json');
 const USERS_FILE = path.join(STORAGE_DIR, 'users.json');
 const TEAMS_FILE = path.join(STORAGE_DIR, 'teams.json');
 const MAX_JSON_BODY_BYTES = 5 * 1024 * 1024;
@@ -417,21 +416,6 @@ async function writeAnnotationsStore(store) {
   await fsp.rename(tempFile, ANNOTATIONS_FILE);
 }
 
-async function readAccountStore() {
-  await ensureStorage();
-
-  try {
-    const raw = await fsp.readFile(ACCOUNT_FILE, 'utf8');
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-  } catch (error) {
-    if (error.code === 'ENOENT') {
-      return {};
-    }
-    throw error;
-  }
-}
-
 async function readUsersStore() {
   await ensureStorage();
 
@@ -538,13 +522,6 @@ async function writeUsersStore(users) {
   await fsp.rename(tempFile, USERS_FILE);
 }
 
-async function writeAccountStore(store) {
-  await ensureStorage();
-  const tempFile = `${ACCOUNT_FILE}.tmp`;
-  await fsp.writeFile(tempFile, `${JSON.stringify(store, null, 2)}\n`, 'utf8');
-  await fsp.rename(tempFile, ACCOUNT_FILE);
-}
-
 async function saveVideoFile(readable, storageName, { maxBytes = MAX_UPLOAD_BYTES } = {}) {
   await ensureStorage();
 
@@ -631,79 +608,8 @@ async function removeVideoFile(storageName) {
   await fsp.rm(filePath, { force: true });
 }
 
-async function trimVideoFile(storageName, { start, end }) {
-  await ensureStorage();
-
-  const safeStorageName = safeBaseName(storageName);
-  const filePath = path.join(VIDEO_DIR, safeStorageName);
-  const extension = path.extname(safeStorageName) || '.mp4';
-  const tempPath = path.join(VIDEO_DIR, `${safeStorageName}.${randomUUID()}.trim${extension}`);
-  const backupPath = path.join(VIDEO_DIR, `${safeStorageName}.${randomUUID()}.bak${extension}`);
-
-  if (!isInside(VIDEO_DIR, filePath) || !isInside(VIDEO_DIR, tempPath) || !isInside(VIDEO_DIR, backupPath)) {
-    throw new Error('INVALID_VIDEO_STORAGE_PATH');
-  }
-
-  const duration = end - start;
-  await trimVideoTrack(filePath, tempPath, start, duration);
-  const stat = await fsp.stat(tempPath);
-
-  await fsp.rename(filePath, backupPath);
-
-  try {
-    await fsp.rename(tempPath, filePath);
-    await fsp.rm(backupPath, { force: true });
-  } catch (error) {
-    await fsp.rename(backupPath, filePath).catch(() => {});
-    await fsp.rm(tempPath, { force: true });
-    throw error;
-  }
-
-  return {
-    size: stat.size
-  };
-}
-
 function ffmpegConcatPath(filePath) {
   return path.resolve(filePath).replace(/\\/g, '/').replace(/'/g, "'\\''");
-}
-
-async function replaceVideoFile(filePath, tempPath) {
-  const extension = path.extname(filePath) || '.mp4';
-  const backupPath = path.join(path.dirname(filePath), `${path.basename(filePath)}.${randomUUID()}.bak${extension}`);
-
-  if (!isInside(VIDEO_DIR, backupPath)) {
-    throw new Error('INVALID_VIDEO_STORAGE_PATH');
-  }
-
-  await fsp.rename(filePath, backupPath);
-
-  try {
-    await fsp.rename(tempPath, filePath);
-    await fsp.rm(backupPath, { force: true });
-  } catch (error) {
-    await fsp.rename(backupPath, filePath).catch(() => {});
-    await fsp.rm(tempPath, { force: true });
-    throw error;
-  }
-}
-
-async function buildRemainingVideoFile(storageName, ranges) {
-  await ensureStorage();
-
-  const safeStorageName = safeBaseName(storageName);
-  const filePath = path.join(VIDEO_DIR, safeStorageName);
-  const extension = path.extname(safeStorageName) || '.mp4';
-  const outputPath = path.join(VIDEO_DIR, `${safeStorageName}.${randomUUID()}.remaining${extension}`);
-
-  if (!isInside(VIDEO_DIR, filePath) || !isInside(VIDEO_DIR, outputPath)) {
-    throw new Error('INVALID_VIDEO_STORAGE_PATH');
-  }
-
-  const result = await buildRemainingVideoOutputFile(storageName, path.basename(outputPath), ranges);
-  await replaceVideoFile(filePath, outputPath);
-
-  return result;
 }
 
 async function buildRemainingVideoOutputFile(storageName, outputStorageName, ranges) {
@@ -824,8 +730,6 @@ const metadataRepository = createJsonRepository({
   writePlaylists,
   readAnnotations: readAnnotationsStore,
   writeAnnotations: writeAnnotationsStore,
-  readAccount: readAccountStore,
-  writeAccount: writeAccountStore,
   readUsers: readUsersStore,
   writeUsers: writeUsersStore,
   readTeams: readTeamsStore,
@@ -851,15 +755,10 @@ const storageService = {
   createPlaylist: (playlist) => metadataTransaction((repository) => repository.createPlaylist(playlist)),
   savePlaylists: (playlists, options) => metadataTransaction((repository) => repository.savePlaylists(playlists, options)),
   deletePlaylist: (id, options) => metadataTransaction((repository) => repository.deletePlaylist(id, options)),
-  listAnnotations: (videoId) => metadataRepository.listAnnotations(videoId),
   getAnnotations: (videoId) => metadataRepository.getAnnotations(videoId),
-  saveAnnotation: (videoId, annotation) => metadataTransaction((repository) => repository.saveAnnotation(videoId, annotation)),
   saveAnnotations: (videoId, annotations) => metadataTransaction((repository) => repository.saveAnnotations(videoId, annotations)),
   deleteAnnotations: (videoId) => metadataTransaction((repository) => repository.deleteAnnotations(videoId)),
   deleteAnnotationsForVideos: (videoIds) => metadataTransaction((repository) => repository.deleteAnnotationsForVideos(videoIds)),
-  getAccount: () => metadataRepository.getAccount(),
-  saveAccount: (account) => metadataTransaction((repository) => repository.saveAccount(account)),
-  updateAccount: (updater) => metadataTransaction((repository) => repository.updateAccount(updater)),
   listUsers: () => metadataRepository.listUsers(),
   findUserByEmail: (email) => metadataRepository.findUserByEmail(email),
   findUserById: (id) => metadataRepository.findUserById(id),
@@ -873,8 +772,6 @@ const storageService = {
   listTeamMembers: (teamId) => metadataRepository.listTeamMembers(teamId),
   removeVideoFile,
   saveVideoFile,
-  trimVideoFile,
-  buildRemainingVideoFile,
   buildRemainingVideoOutputFile,
   extractVideoClipFile
 };

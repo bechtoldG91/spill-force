@@ -238,10 +238,6 @@ function normalizeTeamMemberships(memberships) {
     });
 }
 
-function accountCanAccessApp(user) {
-  return Boolean(user?.id);
-}
-
 function adminUserSummary(user, teamsById = new Map()) {
   const responseUser = publicUser(user);
   return {

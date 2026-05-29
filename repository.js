@@ -5,8 +5,6 @@ function createJsonRepository({
   writePlaylists,
   readAnnotations,
   writeAnnotations,
-  readAccount,
-  writeAccount,
   readUsers,
   writeUsers,
   readTeams,
@@ -144,20 +142,6 @@ function createJsonRepository({
       return Array.isArray(store[videoId]) ? store[videoId] : [];
     },
 
-    async listAnnotations(videoId) {
-      const store = await readAnnotations();
-      return Array.isArray(store[videoId]) ? store[videoId] : [];
-    },
-
-    async saveAnnotation(videoId, annotation) {
-      const store = await readAnnotations();
-      const annotations = Array.isArray(store[videoId]) ? store[videoId] : [];
-      const nextAnnotations = Array.isArray(annotation) ? annotation : [...annotations, annotation];
-      store[videoId] = nextAnnotations;
-      await writeAnnotations(store);
-      return nextAnnotations;
-    },
-
     async saveAnnotations(videoId, annotations) {
       const store = await readAnnotations();
       store[videoId] = annotations;
@@ -193,22 +177,6 @@ function createJsonRepository({
       }
 
       return changed;
-    },
-
-    async getAccount() {
-      return readAccount();
-    },
-
-    async saveAccount(account) {
-      await writeAccount(account);
-      return account;
-    },
-
-    async updateAccount(updater) {
-      const account = await readAccount();
-      const nextAccount = await updater(account);
-      await writeAccount(nextAccount);
-      return nextAccount;
     },
 
     async listUsers() {

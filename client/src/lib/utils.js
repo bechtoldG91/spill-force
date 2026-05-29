@@ -94,10 +94,35 @@ export function isVideoProcessing(video) {
   return Boolean(video?.processing && ['queued', 'processing'].includes(video.processing.status));
 }
 
+export function isVideoProcessingByCurrentUser(video, user) {
+  if (!isVideoProcessing(video) || !user) {
+    return false;
+  }
+
+  const requestedBy = video.processing?.requestedBy || {};
+  const requestedId = String(requestedBy.id || '').trim();
+  const userId = String(user.id || '').trim();
+  if (requestedId && userId && requestedId === userId) {
+    return true;
+  }
+
+  const requestedEmail = normalizeText(requestedBy.email).trim();
+  const userEmail = normalizeText(user.email).trim();
+  return Boolean(requestedEmail && userEmail && requestedEmail === userEmail);
+}
+
+export function isVideoProcessingByOtherUser(video, user) {
+  return isVideoProcessing(video) && !isVideoProcessingByCurrentUser(video, user);
+}
+
 export function videoProcessingUserName(video) {
   return video?.processing?.requestedBy?.name || video?.processing?.requestedBy?.email || 'outro usuario';
 }
 
-export function videoProcessingMessage(video) {
+export function videoProcessingMessage(video, user = null) {
+  if (isVideoProcessingByCurrentUser(video, user)) {
+    return 'O corte desse video ainda esta sendo processado.';
+  }
+
   return `Video ja esta sendo editado por ${videoProcessingUserName(video)}.`;
 }

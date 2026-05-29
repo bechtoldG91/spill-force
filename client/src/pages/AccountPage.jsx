@@ -479,6 +479,29 @@ export function AccountPage({ authUser, mode = 'settings', showToast = () => {},
               </div>
             </div>
             <p className="mt-3 text-xs font-semibold leading-5 text-tactical-ash">PNG, JPG ou WebP ate 900 KB.</p>
+
+            <div className="mt-6 border-t border-red-200 pt-5">
+              <h2 className="text-lg font-black tracking-tight text-red-800">Excluir conta</h2>
+              <div className="mt-4 grid gap-3">
+                <label className="block">
+                  <span className="tactical-label">Confirmacao</span>
+                  <input
+                    className="tactical-input border-red-200 focus:border-red-500"
+                    value={deleteConfirmation}
+                    onChange={(event) => setDeleteConfirmation(event.target.value)}
+                    placeholder="Digite EXCLUIR"
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="h-11 rounded-xl bg-red-700 px-4 text-xs font-black uppercase tracking-[0.16em] text-white transition hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-45"
+                  disabled={deletingAccount || deleteConfirmation.trim().toUpperCase() !== 'EXCLUIR'}
+                  onClick={deleteOwnAccount}
+                >
+                  {deletingAccount ? 'Excluindo...' : 'Excluir minha conta'}
+                </button>
+              </div>
+            </div>
           </article>
 
           {authUser?.globalAdmin ? (
@@ -557,29 +580,6 @@ export function AccountPage({ authUser, mode = 'settings', showToast = () => {},
               </div>
             </article>
           ) : null}
-
-          <article className="tactical-panel border border-red-200 px-5 py-5 lg:col-span-3">
-            <h2 className="text-lg font-black tracking-tight text-red-800">Excluir conta</h2>
-            <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-              <label className="block">
-                <span className="tactical-label">Confirmacao</span>
-                <input
-                  className="tactical-input border-red-200 focus:border-red-500"
-                  value={deleteConfirmation}
-                  onChange={(event) => setDeleteConfirmation(event.target.value)}
-                  placeholder="Digite EXCLUIR"
-                />
-              </label>
-              <button
-                type="button"
-                className="h-11 rounded-xl bg-red-700 px-4 text-xs font-black uppercase tracking-[0.16em] text-white transition hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-45"
-                disabled={deletingAccount || deleteConfirmation.trim().toUpperCase() !== 'EXCLUIR'}
-                onClick={deleteOwnAccount}
-              >
-                {deletingAccount ? 'Excluindo...' : 'Excluir minha conta'}
-              </button>
-            </div>
-          </article>
 
           <div className="flex justify-end lg:col-span-3">
             <button type="button" className="tactical-button min-h-12 w-full sm:w-auto sm:min-w-[220px]" disabled={savingSettings} onClick={saveAccountSettings}>

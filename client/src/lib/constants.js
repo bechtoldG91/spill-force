@@ -29,6 +29,4 @@ export const NAV_ITEMS = [
   }
 ];
 
-export const SWATCHES = ['#3f8f29', '#78c93c', '#002244', '#1b5e9b', '#ffffff'];
-
 export const MARKER_TOLERANCE = 0.18;

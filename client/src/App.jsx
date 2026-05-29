@@ -425,11 +425,11 @@ export default function App() {
                 <Route path="/times/:teamId" element={<Navigate to="/time" replace />} />
                 <Route path="/upload" element={canCreateContent ? <UploadPage showToast={showToast} /> : <Navigate to="/biblioteca" replace />} />
                 <Route path="/upload.html" element={<Navigate to="/upload" replace />} />
-                <Route path="/biblioteca" element={canAccessTeamContent ? <LibraryPage showToast={showToast} /> : <Navigate to="/time" replace />} />
+                <Route path="/biblioteca" element={canAccessTeamContent ? <LibraryPage showToast={showToast} authUser={authUser} /> : <Navigate to="/time" replace />} />
                 <Route path="/biblioteca.html" element={<Navigate to="/biblioteca" replace />} />
-                <Route path="/corte-longo" element={canAccessTeamContent ? <LongCutPage showToast={showToast} /> : <Navigate to="/time" replace />} />
+                <Route path="/corte-longo" element={canAccessTeamContent ? <LongCutPage showToast={showToast} authUser={authUser} /> : <Navigate to="/time" replace />} />
                 <Route path="/corte-longo.html" element={<Navigate to="/corte-longo" replace />} />
-                <Route path="/analise" element={canAccessTeamContent ? <AnalysisPage showToast={showToast} /> : <Navigate to="/time" replace />} />
+                <Route path="/analise" element={canAccessTeamContent ? <AnalysisPage showToast={showToast} authUser={authUser} /> : <Navigate to="/time" replace />} />
                 <Route path="/analise.html" element={<Navigate to="/analise" replace />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>

@@ -39,13 +39,6 @@ export function Icon({ name, className = '' }) {
           <path d="M280-280h80v-280h-80v280Zm160 0h80v-400h-80v400Zm160 0h80v-160h-80v160ZM200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h560q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H200Zm0-80h560v-560H200v560Zm0-560v560-560Z" />
         </svg>
       );
-    case 'search':
-      return (
-        <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2">
-          <circle cx="11" cy="11" r="6" />
-          <path d="m20 20-4.2-4.2" />
-        </svg>
-      );
     case 'play':
       return (
         <svg viewBox="0 0 24 24" className={className} fill="currentColor">
@@ -63,13 +56,6 @@ export function Icon({ name, className = '' }) {
         <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2">
           <rect x="4" y="5" width="16" height="14" rx="2" />
           <path d="M8 5v14M16 5v14M4 9h4M4 15h4M16 9h4M16 15h4" />
-        </svg>
-      );
-    case 'folder-plus':
-      return (
-        <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-9Z" />
-          <path d="M12 10v6M9 13h6" />
         </svg>
       );
     case 'pen':
@@ -115,13 +101,6 @@ export function Icon({ name, className = '' }) {
           />
         </svg>
       );
-    case 'profile':
-      return (
-        <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2">
-          <circle cx="12" cy="8" r="4" />
-          <path d="M4.5 20a7.5 7.5 0 0 1 15 0" />
-        </svg>
-      );
     case 'logout':
       return (
         <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2">
@@ -149,14 +128,6 @@ export function Icon({ name, className = '' }) {
           <path d="M10 11v6M14 11v6" />
           <path d="M6 7l1 12h10l1-12" />
           <path d="M9 4h6l1 3H8l1-3Z" />
-        </svg>
-      );
-    case 'save':
-      return (
-        <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M5 4h11l3 3v13H5V4Z" />
-          <path d="M8 4v6h8V4" />
-          <path d="M8 20v-6h8v6" />
         </svg>
       );
     case 'add-note':
@@ -190,12 +161,6 @@ export function Icon({ name, className = '' }) {
         <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2">
           <path d="m13 7 5 5-5 5" />
           <path d="M6 7v10" />
-        </svg>
-      );
-    case 'spark':
-      return (
-        <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M12 3v5M12 16v5M3 12h5M16 12h5M5.6 5.6l3.5 3.5M14.9 14.9l3.5 3.5M18.4 5.6l-3.5 3.5M9.1 14.9l-3.5 3.5" />
         </svg>
       );
     case 'chevron-down':

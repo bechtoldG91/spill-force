@@ -17,7 +17,6 @@ export function useWindowShortcuts({ onKeyDown, onKeyUp, onBlur, dependencies = 
       }
       if (onBlur) {
         window.removeEventListener('blur', onBlur);
-        onBlur();
       }
     };
   }, dependencies);

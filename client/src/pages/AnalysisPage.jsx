@@ -37,17 +37,19 @@ const DRAW_TOOLS = [
   { id: 'text-box', label: 'Caixa de texto', icon: 'text' }
 ];
 const PLAYLIST_TABLE_COLUMNS = [
-  { key: 'title', label: 'Titulo', width: 'min-w-[220px]' },
-  { key: 'team', label: 'Time', width: 'min-w-[160px]' },
-  { key: 'athlete', label: 'Atleta', width: 'min-w-[160px]' },
-  { key: 'kind', label: 'Tipo', width: 'min-w-[130px]' },
-  { key: 'uploader', label: 'Responsavel', width: 'min-w-[170px]' },
-  { key: 'tags', label: 'Tags', width: 'min-w-[220px]' },
-  { key: 'visibility', label: 'Visibilidade', width: 'min-w-[150px]' },
-  { key: 'notes', label: 'Notas', width: 'min-w-[280px]' },
-  { key: 'playlistId', label: 'Playlist', width: 'min-w-[190px]' }
+  { key: 'number', label: '#', width: 'min-w-[80px]' },
+  { key: 'odk', label: 'ODK', width: 'min-w-[110px]' },
+  { key: 'playType', label: 'Play Type', width: 'min-w-[150px]' },
+  { key: 'dn', label: 'DN', width: 'min-w-[90px]' },
+  { key: 'dist', label: 'Dist', width: 'min-w-[100px]' },
+  { key: 'front', label: 'Front', width: 'min-w-[130px]' },
+  { key: 'blitz', label: 'Blitz', width: 'min-w-[120px]' },
+  { key: 'cover', label: 'Cover', width: 'min-w-[120px]' },
+  { key: 'offForm', label: 'Off Form', width: 'min-w-[150px]' },
+  { key: 'motion', label: 'Motion', width: 'min-w-[130px]' },
+  { key: 'offPlay', label: 'Off Play', width: 'min-w-[160px]' }
 ];
-const VIDEO_EDIT_FIELDS = new Set(PLAYLIST_TABLE_COLUMNS.map((column) => column.key));
+const CUSTOM_ANALYSIS_COLUMNS_KEY = 'spill-force-analysis-custom-columns';
 
 function pointFromEvent(event, element) {
   const rect = element.getBoundingClientRect();
@@ -160,7 +162,7 @@ function drawStroke(context, stroke, width, height) {
   context.restore();
 }
 
-export function AnalysisPage({ showToast }) {
+export function AnalysisPage({ showToast, authUser }) {
   const [searchParams] = useSearchParams();
   const queryVideoId = searchParams.get('video');
   const videoRef = useRef(null);
@@ -227,10 +229,28 @@ export function AnalysisPage({ showToast }) {
   const [playbackMode, setPlaybackMode] = useState('all');
   const [replayAnchorTime, setReplayAnchorTime] = useState(null);
   const [timelineDeleteAnnotationId, setTimelineDeleteAnnotationId] = useState(null);
+  const [tableEditable, setTableEditable] = useState(false);
+  const [customAnalysisColumns, setCustomAnalysisColumns] = useState(() => {
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(CUSTOM_ANALYSIS_COLUMNS_KEY) || '[]');
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const analysisColumns = useMemo(
+    () => [...PLAYLIST_TABLE_COLUMNS, ...customAnalysisColumns],
+    [customAnalysisColumns]
+  );
 
   useEffect(() => {
     currentStrokeRef.current = currentStroke;
   }, [currentStroke]);
+
+  useEffect(() => {
+    window.localStorage.setItem(CUSTOM_ANALYSIS_COLUMNS_KEY, JSON.stringify(customAnalysisColumns));
+  }, [customAnalysisColumns]);
 
   useEffect(
     () => () => {
@@ -549,40 +569,58 @@ export function AnalysisPage({ showToast }) {
   }
 
   function editableVideoValue(video, field) {
-    if (field === 'tags') {
-      return Array.isArray(video.tags) ? video.tags.join(', ') : '';
-    }
-
-    return video[field] || '';
+    return video.analysis?.[field] || '';
   }
 
   function updateVideoCell(videoId, field, value) {
-    if (!VIDEO_EDIT_FIELDS.has(field)) {
+    setVideos((current) =>
+      current.map((video) =>
+        video.id === videoId
+          ? {
+              ...video,
+              analysis: {
+                ...(video.analysis || {}),
+                [field]: value
+              }
+            }
+          : video
+      )
+    );
+  }
+
+  function addAnalysisColumn() {
+    setCustomAnalysisColumns((current) => [
+      ...current,
+      {
+        key: `custom-${Date.now()}`,
+        label: `Coluna ${current.length + 1}`,
+        width: 'min-w-[150px]'
+      }
+    ]);
+  }
+
+  function updateAnalysisColumnLabel(columnKey, label) {
+    setCustomAnalysisColumns((current) =>
+      current.map((column) => (column.key === columnKey ? { ...column, label } : column))
+    );
+  }
+
+  function playVideoFromTable(video) {
+    if (!video) {
       return;
     }
 
-    setVideos((current) =>
-      current.map((video) => {
-        if (video.id !== videoId) {
-          return video;
-        }
+    setSelectedPlaylistId(video.playlistId || selectedPlaylistId);
+    setSelectedVideoId(video.id);
+    window.requestAnimationFrame(() => {
+      const player = videoRef.current;
+      if (!player) {
+        return;
+      }
 
-        if (field === 'tags') {
-          return {
-            ...video,
-            tags: String(value || '')
-              .split(',')
-              .map((tag) => tag.trim())
-              .filter(Boolean)
-          };
-        }
-
-        return {
-          ...video,
-          [field]: value
-        };
-      })
-    );
+      player.currentTime = 0;
+      player.play().catch(() => showToast('Nao foi possivel reproduzir.'));
+    });
   }
 
   async function saveVideoRow(videoId) {
@@ -592,7 +630,7 @@ export function AnalysisPage({ showToast }) {
     }
 
     if (isVideoProcessing(video)) {
-      showToast(videoProcessingMessage(video));
+      showToast(videoProcessingMessage(video, authUser));
       return;
     }
 
@@ -605,15 +643,8 @@ export function AnalysisPage({ showToast }) {
         },
         body: JSON.stringify({
           teamId: video.teamId || '',
-          title: video.title,
-          team: video.team,
-          athlete: video.athlete,
-          kind: video.kind,
-          uploader: video.uploader,
-          tags: video.tags || [],
-          notes: video.notes,
-          visibility: video.visibility,
-          playlistId: video.playlistId
+          playlistId: video.playlistId,
+          analysis: video.analysis || {}
         })
       });
       const payload = await response.json().catch(() => ({}));
@@ -986,16 +1017,6 @@ export function AnalysisPage({ showToast }) {
     const nextTime = (Number(value) / 1000) * duration;
     video.currentTime = nextTime;
     setCurrentTime(nextTime);
-  }
-
-  function skip(seconds) {
-    const video = videoRef.current;
-    if (!video) {
-      return;
-    }
-
-    video.currentTime = clamp((video.currentTime || 0) + seconds, 0, duration || Number.MAX_SAFE_INTEGER);
-    setCurrentTime(video.currentTime);
   }
 
   function toggleFullscreen() {
@@ -1404,7 +1425,11 @@ export function AnalysisPage({ showToast }) {
     }
 
     function handleKeyboardShortcut(event) {
-      if (event.code === 'Space' && !isTypingTarget(event.target)) {
+      const targetIsTyping = isTypingTarget(event.target);
+      const shiftOnly = event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey;
+      const typingShiftShortcut = targetIsTyping && shiftOnly;
+
+      if (event.code === 'Space' && (!targetIsTyping || typingShiftShortcut)) {
         event.preventDefault();
         event.stopPropagation();
         const video = videoRef.current;
@@ -1421,7 +1446,7 @@ export function AnalysisPage({ showToast }) {
         return;
       }
 
-      if (event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === 'q' && !isTypingTarget(event.target)) {
+      if (shiftOnly && event.key.toLowerCase() === 'q' && !targetIsTyping) {
         event.preventDefault();
         const video = videoRef.current;
         if (video && !video.paused) {
@@ -1438,7 +1463,7 @@ export function AnalysisPage({ showToast }) {
       }
 
       if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'z') {
-        if (isTypingTarget(event.target)) {
+        if (targetIsTyping) {
           return;
         }
 
@@ -1447,11 +1472,14 @@ export function AnalysisPage({ showToast }) {
         return;
       }
 
-      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || isTypingTarget(event.target)) {
-        return;
-      }
-
       if (arrowKeys.has(event.key)) {
+        const regularArrowShortcut = !targetIsTyping && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
+        const shiftedTypingArrowShortcut = targetIsTyping && shiftOnly;
+
+        if (!regularArrowShortcut && !shiftedTypingArrowShortcut) {
+          return;
+        }
+
         event.preventDefault();
         event.stopPropagation();
 
@@ -1829,6 +1857,26 @@ export function AnalysisPage({ showToast }) {
                 </span>
               </button>
             ))}
+            <button
+              type="button"
+              onClick={() => setTableEditable((current) => !current)}
+              className={cn(
+                'inline-flex min-h-9 items-center rounded-xl border px-3 text-xs font-black uppercase tracking-[0.12em] transition',
+                tableEditable
+                  ? 'border-tactical-pitch bg-tactical-pitch text-white shadow-glow'
+                  : 'border-tactical-ink/10 bg-white text-tactical-ink hover:border-tactical-pitch/35 hover:bg-tactical-pitch/10'
+              )}
+            >
+              {tableEditable ? 'Editavel' : 'Reproducao'}
+            </button>
+            <button
+              type="button"
+              onClick={addAnalysisColumn}
+              disabled={!tableEditable}
+              className="inline-flex min-h-9 items-center rounded-xl border border-tactical-pitch/30 bg-tactical-pitch/10 px-3 text-xs font-black uppercase tracking-[0.12em] text-tactical-ink transition hover:border-tactical-pitch hover:bg-tactical-pitch hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              + Coluna
+            </button>
           </div>
         </div>
 
@@ -1839,7 +1887,7 @@ export function AnalysisPage({ showToast }) {
                 <th className="w-24 border-b border-r border-tactical-line/35 px-3 py-3 text-[0.62rem] font-black uppercase tracking-[0.16em] text-tactical-ash">
                   Abrir
                 </th>
-                {PLAYLIST_TABLE_COLUMNS.map((column) => (
+                {analysisColumns.map((column) => (
                   <th
                     key={column.key}
                     className={cn(
@@ -1847,7 +1895,17 @@ export function AnalysisPage({ showToast }) {
                       column.width
                     )}
                   >
-                    {column.label}
+                    {column.key.startsWith('custom-') ? (
+                      <input
+                        className="w-full bg-transparent font-black uppercase tracking-[0.16em] text-tactical-ash outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-tactical-pitch/25"
+                        value={column.label}
+                        maxLength={40}
+                        disabled={!tableEditable}
+                        onChange={(event) => updateAnalysisColumnLabel(column.key, event.target.value)}
+                      />
+                    ) : (
+                      column.label
+                    )}
                   </th>
                 ))}
                 <th className="w-28 border-b border-tactical-line/35 px-3 py-3 text-[0.62rem] font-black uppercase tracking-[0.16em] text-tactical-ash">
@@ -1857,7 +1915,19 @@ export function AnalysisPage({ showToast }) {
             </thead>
             <tbody>
               {playlistTableVideos.map((video) => (
-                <tr key={video.id} className={cn('transition', video.id === selectedVideoId ? 'bg-tactical-pitch/10' : 'bg-white hover:bg-tactical-bone/40')}>
+                <tr
+                  key={video.id}
+                  className={cn(
+                    'transition',
+                    tableEditable ? '' : 'cursor-pointer',
+                    video.id === selectedVideoId ? 'bg-tactical-pitch/10' : 'bg-white hover:bg-tactical-bone/40'
+                  )}
+                  onClick={() => {
+                    if (!tableEditable) {
+                      playVideoFromTable(video);
+                    }
+                  }}
+                >
                   <td className="border-b border-r border-tactical-line/35 px-2 py-2 align-top">
                     <button
                       type="button"
@@ -1868,50 +1938,33 @@ export function AnalysisPage({ showToast }) {
                           : 'bg-tactical-bone text-tactical-ink hover:bg-tactical-pitch/10 hover:text-tactical-pitch'
                       )}
                       onClick={() => {
-                        setSelectedPlaylistId(video.playlistId || selectedPlaylistId);
-                        setSelectedVideoId(video.id);
+                        playVideoFromTable(video);
                       }}
                     >
                       Abrir
                     </button>
                   </td>
 
-                  {PLAYLIST_TABLE_COLUMNS.map((column) => (
+                  {analysisColumns.map((column) => (
                     <td key={`${video.id}-${column.key}`} className="border-b border-r border-tactical-line/35 p-0 align-top">
-                      {column.key === 'playlistId' ? (
-                        <select
-                          className="h-11 w-full bg-transparent px-3 text-sm font-semibold text-tactical-ink outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-tactical-pitch/25"
-                          value={video.playlistId || ''}
-                          onFocus={() => setSelectedVideoId(video.id)}
-                          onChange={(event) => updateVideoCell(video.id, column.key, event.target.value)}
-                          onKeyDown={(event) => handleTableCellKeyDown(event, video.id)}
-                        >
-                          {playlists.map((playlist) => (
-                            <option key={playlist.id} value={playlist.id}>
-                              {playlist.name}
-                            </option>
-                          ))}
-                        </select>
-                      ) : column.key === 'notes' ? (
-                        <textarea
-                          className="min-h-11 w-full resize-y bg-transparent px-3 py-2 text-sm font-semibold text-tactical-ink outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-tactical-pitch/25"
-                          value={editableVideoValue(video, column.key)}
-                          rows="1"
-                          maxLength={500}
-                          onFocus={() => setSelectedVideoId(video.id)}
-                          onChange={(event) => updateVideoCell(video.id, column.key, event.target.value)}
-                          onKeyDown={(event) => handleTableCellKeyDown(event, video.id)}
-                        />
-                      ) : (
-                        <input
-                          className="h-11 w-full bg-transparent px-3 text-sm font-semibold text-tactical-ink outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-tactical-pitch/25"
-                          value={editableVideoValue(video, column.key)}
-                          maxLength={column.key === 'tags' ? 240 : 160}
-                          onFocus={() => setSelectedVideoId(video.id)}
-                          onChange={(event) => updateVideoCell(video.id, column.key, event.target.value)}
-                          onKeyDown={(event) => handleTableCellKeyDown(event, video.id)}
-                        />
-                      )}
+                      <input
+                        className="h-11 w-full bg-transparent px-3 text-sm font-semibold text-tactical-ink outline-none focus:bg-white focus:ring-2 focus:ring-inset focus:ring-tactical-pitch/25"
+                        value={editableVideoValue(video, column.key)}
+                        maxLength={240}
+                        readOnly={!tableEditable}
+                        onClick={(event) => {
+                          if (tableEditable) {
+                            event.stopPropagation();
+                          }
+                        }}
+                        onFocus={() => {
+                          if (tableEditable) {
+                            setSelectedVideoId(video.id);
+                          }
+                        }}
+                        onChange={(event) => updateVideoCell(video.id, column.key, event.target.value)}
+                        onKeyDown={(event) => handleTableCellKeyDown(event, video.id)}
+                      />
                     </td>
                   ))}
 
@@ -1919,7 +1972,7 @@ export function AnalysisPage({ showToast }) {
                     <button
                       type="button"
                       className="h-10 w-full rounded-lg bg-tactical-ink px-2 text-xs font-black uppercase tracking-[0.12em] text-white transition hover:bg-tactical-pitch disabled:cursor-not-allowed disabled:opacity-60"
-                      disabled={savingVideoId === video.id || isVideoProcessing(video)}
+                      disabled={!tableEditable || savingVideoId === video.id || isVideoProcessing(video)}
                       onClick={() => saveVideoRow(video.id)}
                     >
                       {isVideoProcessing(video) ? 'Editando' : savingVideoId === video.id ? 'Salvando' : 'Salvar'}

@@ -30,6 +30,20 @@ function normalizeTags(raw) {
   return parseTags(raw);
 }
 
+function normalizeAnalysis(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return {};
+  }
+
+  return Object.entries(raw).reduce((analysis, [key, value]) => {
+    const safeKey = safeText(key, 80);
+    if (safeKey) {
+      analysis[safeKey] = safeText(value, 240);
+    }
+    return analysis;
+  }, {});
+}
+
 let videoProcessingQueue = Promise.resolve();
 
 function enqueueVideoProcessing(task) {
@@ -84,6 +98,10 @@ function processingMetadata({ id, operation, user, status = 'queued' }) {
 
 function videoUrl(storageName, teamId = '') {
   return `/videos/${encodeURIComponent(storageName)}${teamId ? `?teamId=${encodeURIComponent(teamId)}` : ''}`;
+}
+
+function numberedTitle(index) {
+  return String(index + 1).padStart(2, '0');
 }
 
 async function cleanupVideoFiles(storageNames) {
@@ -209,29 +227,37 @@ async function runLongCutProcessingJob(job) {
   try {
     await markProcessingRunning(job);
     const extension = path.extname(job.sourceStorageName) || path.extname(job.originalName) || '.mp4';
+    const sourceStartOffset = Number(job.sourceVideo.startOffset) || 0;
     const now = new Date().toISOString();
     const createdClips = [];
+    const withSourceOffset = (range) => ({
+      start: range.start + sourceStartOffset,
+      end: range.end + sourceStartOffset
+    });
 
     for (const [clipIndex, clip] of job.clips.entries()) {
       const clipId = randomUUID();
       const storageName = `${clipId}${extension}`;
-      const clipFile = await storageService.extractVideoClipFile(job.sourceStorageName, storageName, clip);
-      const clipNumber = String(clipIndex + 1).padStart(2, '0');
+      const clipFile = await storageService.extractVideoClipFile(job.sourceStorageName, storageName, withSourceOffset(clip));
       createdStorageNames.push(storageName);
       createdClips.push({
-        ...job.sourceVideo,
-        id: clipId,
-        title: `${job.sourceVideo.title} - Clipe ${clipNumber}`,
-        originalName: `${path.basename(job.originalName || job.sourceStorageName, extension)}-clipe-${clipNumber}${extension}`,
-        storageName,
-        url: videoUrl(storageName, job.scope.teamId || ''),
-        size: clipFile.size,
-        duration: Math.max(1, Math.round(clip.end - clip.start)),
-        notes: safeText(`Corte ${formatRangeLabel(clip.start, clip.end)}`, 500),
-        processing: null,
-        processingError: null,
-        createdAt: now,
-        updatedAt: now
+        start: clip.start,
+        video: {
+          ...job.sourceVideo,
+          id: clipId,
+          title: '',
+          originalName: '',
+          storageName,
+          url: videoUrl(storageName, job.scope.teamId || ''),
+          size: clipFile.size,
+          duration: Math.max(1, Math.round(clip.end - clip.start)),
+          startOffset: 0,
+          notes: safeText(`Corte ${formatRangeLabel(clip.start, clip.end)}`, 500),
+          processing: null,
+          processingError: null,
+          createdAt: now,
+          updatedAt: now
+        }
       });
     }
 
@@ -240,7 +266,11 @@ async function runLongCutProcessingJob(job) {
     if (job.remainingRanges.length) {
       remainingStorageName = `${randomUUID()}${extension}`;
       createdStorageNames.push(remainingStorageName);
-      remainingFile = await storageService.buildRemainingVideoOutputFile(job.sourceStorageName, remainingStorageName, job.remainingRanges);
+      remainingFile = await storageService.buildRemainingVideoOutputFile(
+        job.sourceStorageName,
+        remainingStorageName,
+        job.remainingRanges.map(withSourceOffset)
+      );
     }
 
     const finalized = await storageService.transaction(async (repository) => {
@@ -251,32 +281,59 @@ async function runLongCutProcessingJob(job) {
       }
 
       const currentVideo = videos[index];
+      const parts = [];
       if (remainingFile && remainingStorageName) {
         const nextVideo = {
           ...currentVideo,
-          title: `${currentVideo.title} - Restante`,
+          title: '',
+          originalName: '',
           storageName: remainingStorageName,
           url: `${videoUrl(remainingStorageName, job.scope.teamId || '')}${job.scope.teamId ? '&' : '?'}v=${Date.now()}`,
           size: remainingFile.size,
           duration: Math.max(1, Math.round(job.remainingDuration)),
+          startOffset: 0,
           processing: null,
           processingError: null,
           updatedAt: now
         };
         delete nextVideo.processing;
         delete nextVideo.processingError;
-        videos.splice(index, 1, nextVideo, ...createdClips.map((clip) => {
-          const nextClip = {
-            ...clip,
+        parts.push({
+          start: job.remainingRanges[0]?.start || 0,
+          video: nextVideo
+        });
+      }
+
+      createdClips.forEach((clip) => {
+        parts.push({
+          start: clip.start,
+          video: {
+            ...clip.video,
             playlistId: currentVideo.playlistId,
             playlistName: currentVideo.playlistName
+          }
+        });
+      });
+
+      const orderedVideos = parts
+        .sort((left, right) => left.start - right.start)
+        .map((part, partIndex) => {
+          const title = numberedTitle(partIndex);
+          const nextPartVideo = {
+            ...part.video,
+            title,
+            originalName: `${title}${extension}`,
+            updatedAt: now
           };
-          delete nextClip.processing;
-          delete nextClip.processingError;
-          return nextClip;
-        }));
+          delete nextPartVideo.processing;
+          delete nextPartVideo.processingError;
+          return nextPartVideo;
+        });
+
+      if (remainingFile && remainingStorageName) {
+        videos.splice(index, 1, ...orderedVideos);
       } else {
-        videos.splice(index, 1, ...createdClips.map((clip) => {
+        videos.splice(index, 1, ...orderedVideos.map((clip) => {
           const nextClip = {
             ...clip,
             playlistId: currentVideo.playlistId,
@@ -406,11 +463,12 @@ async function handleCreateVideo(req, res, requestUrl) {
       const { videos, playlists } = await loadLibraryState({ persist: false, repository, ...scope });
       const requestedPlaylistId = safeText(params.get('playlistId'), 80);
       const playlist = playlists.find((item) => item.id === requestedPlaylistId) || ensurePlaylistForDate(playlists, now, ownerId, scope.teamId || '');
+      const playlistVideoCount = videos.filter((item) => item.playlistId === playlist.id).length;
       const video = {
         id,
         ownerId,
         teamId: scope.teamId || '',
-        title: safeText(params.get('title'), 160) || path.basename(originalName, extension),
+        title: safeText(params.get('title'), 160) || numberedTitle(playlistVideoCount),
         team: safeText(params.get('team'), 120) || 'Sem equipe',
         athlete: safeText(params.get('athlete'), 120),
         kind: safeText(params.get('kind'), 40) || 'jogo',
@@ -558,6 +616,7 @@ async function handleUpdateVideo(req, res, id) {
       tags: Object.prototype.hasOwnProperty.call(payload, 'tags') ? normalizeTags(payload.tags) : videos[index].tags,
       notes: textField('notes', 500),
       visibility: textField('visibility', 40, videos[index].visibility || 'equipe') || videos[index].visibility || 'equipe',
+      analysis: Object.prototype.hasOwnProperty.call(payload, 'analysis') ? normalizeAnalysis(payload.analysis) : videos[index].analysis || {},
       playlistId: playlist.id,
       updatedAt: new Date().toISOString()
     };
@@ -649,18 +708,17 @@ async function handleTrimVideo(req, res, id) {
       return { found: true, invalidRange: true };
     }
 
-    const jobId = randomUUID();
-    const processing = processingMetadata({
-      id: jobId,
-      operation: 'trim',
-      user: access.user
-    });
+    const previousStartOffset = Number(video.startOffset) || 0;
+    const nextStartOffset = previousStartOffset + start;
     const nextVideo = {
       ...video,
-      processing,
+      startOffset: Number(nextStartOffset.toFixed(3)),
+      duration: Math.max(1, Math.round(safeEnd - start)),
+      processing: null,
       processingError: null,
       updatedAt: new Date().toISOString()
     };
+    delete nextVideo.processing;
     delete nextVideo.processingError;
     videos[index] = nextVideo;
     await repository.saveVideos(videos, scope);
@@ -668,18 +726,6 @@ async function handleTrimVideo(req, res, id) {
     return {
       found: true,
       invalidRange: false,
-      job: {
-        id: jobId,
-        operation: 'trim',
-        videoId: video.id,
-        sourceStorageName: video.storageName,
-        originalName: video.originalName,
-        sourceUpdatedAt: video.updatedAt,
-        start,
-        end: safeEnd,
-        scope,
-        requestedBy: processing.requestedBy
-      },
       video: videoSummary(nextVideo, playlists)
     };
   });
@@ -703,17 +749,7 @@ async function handleTrimVideo(req, res, id) {
     return;
   }
 
-  enqueueVideoProcessing(() => runTrimProcessingJob(result.job));
-
-  jsonResponse(res, 202, {
-    job: {
-      id: result.job.id,
-      operation: result.job.operation,
-      videoId: result.job.videoId,
-      status: 'queued'
-    },
-    video: result.video
-  });
+  jsonResponse(res, 200, { video: result.video });
 }
 
 function formatSecondsLabel(seconds) {

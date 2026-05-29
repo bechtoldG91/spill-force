@@ -199,6 +199,8 @@ function videoSummary(video, playlists = []) {
     contentType: video.contentType,
     size: video.size,
     duration: video.duration,
+    startOffset: Number(video.startOffset) || 0,
+    analysis: video.analysis && typeof video.analysis === 'object' ? video.analysis : {},
     processing: videoProcessingSummary(video.processing),
     processingError: videoProcessingErrorSummary(video.processingError),
     createdAt: video.createdAt,

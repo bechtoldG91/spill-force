@@ -133,23 +133,23 @@
   }
 
   .timeline-slider-progress::-webkit-slider-thumb {
-    width: 6px;
-    height: 24px;
+    width: 0;
+    height: 18px;
     border: 0;
     border-radius: 0;
-    background: #ffffff;
+    background: transparent;
     cursor: pointer;
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
+    box-shadow: none;
   }
 
   .timeline-slider-progress::-moz-range-thumb {
-    width: 6px;
-    height: 24px;
+    width: 0;
+    height: 18px;
     border: 0;
     border-radius: 0;
-    background: #ffffff;
+    background: transparent;
     cursor: pointer;
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
+    box-shadow: none;
   }
 }
 

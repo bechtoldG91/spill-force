@@ -21,12 +21,8 @@ function buildFileKey(file) {
   return `${file.name}:${file.size}:${file.lastModified}`;
 }
 
-function deriveTitle(file) {
-  return file.name
-    .replace(/\.[^.]+$/, '')
-    .replace(/[_-]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+function numberedTitle(index) {
+  return String(index + 1).padStart(2, '0');
 }
 
 function isVideoFile(file) {
@@ -183,7 +179,7 @@ export function UploadPage({ showToast }) {
       validFiles.map(async (file) => ({
         key: buildFileKey(file),
         file,
-        title: deriveTitle(file) || 'Video',
+        title: '',
         duration: await getVideoDuration(file),
         progress: 0,
         status: 'ready',
@@ -205,7 +201,10 @@ export function UploadPage({ showToast }) {
         }
 
         knownKeys.add(item.key);
-        next.push(item);
+        next.push({
+          ...item,
+          title: numberedTitle(next.length)
+        });
         addedCount += 1;
       });
 
@@ -325,7 +324,7 @@ export function UploadPage({ showToast }) {
     };
 
     const uploadTargets = selectedFiles.map((item) => {
-      const title = selectedFiles.length === 1 ? form.title.trim() || item.title : item.title;
+      const title = selectedFiles.length === 1 ? form.title.trim() : '';
       const params = new URLSearchParams({
         fileName: item.file.name,
         title,
@@ -536,7 +535,7 @@ export function UploadPage({ showToast }) {
                           maxLength={160}
                           value={form.title}
                           onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
-                          placeholder={selectedFiles[0]?.title || 'Nome do video'}
+                          placeholder={selectedFiles[0]?.title || '01'}
                         />
                       </label>
                     ) : null}

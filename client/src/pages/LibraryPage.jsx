@@ -20,10 +20,14 @@ import {
   timelineProgressBackground
 } from '../components/player/playerUtils';
 import { authFetch } from '../lib/auth';
-import { cn, formatBytes, formatDate, formatDuration, isVideoProcessing, kindLabel, videoProcessingMessage } from '../lib/utils';
-
-const TRIM_START_COLOR = '#ffd400';
-const TRIM_END_COLOR = '#ff7a1a';
+import {
+  cn,
+  formatDuration,
+  isVideoProcessing,
+  isVideoProcessingByOtherUser,
+  kindLabel,
+  videoProcessingMessage
+} from '../lib/utils';
 
 function syncPlaylistCounts(playlists, videos) {
   const counts = videos.reduce((accumulator, video) => {
@@ -41,7 +45,7 @@ function syncPlaylistCounts(playlists, videos) {
   }));
 }
 
-export function LibraryPage({ showToast }) {
+export function LibraryPage({ showToast, authUser }) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const queryVideoId = searchParams.get('video');
@@ -78,10 +82,6 @@ export function LibraryPage({ showToast }) {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isPaused, setIsPaused] = useState(true);
-  const [trimStart, setTrimStart] = useState(0);
-  const [trimEnd, setTrimEnd] = useState(0);
-  const [hasTrimStartMark, setHasTrimStartMark] = useState(false);
-  const [hasTrimEndMark, setHasTrimEndMark] = useState(false);
   const [isTrimming, setIsTrimming] = useState(false);
 
   const selectedVideo = useMemo(
@@ -127,15 +127,12 @@ export function LibraryPage({ showToast }) {
     () => playlists.filter((playlist) => playlist.id !== selectedPlaylistId),
     [playlists, selectedPlaylistId]
   );
-  const progressPercent = duration ? clamp((currentTime / duration) * 100, 0, 100) : 0;
-  const trimStartPercent = duration ? clamp((trimStart / duration) * 100, 0, 100) : 0;
-  const trimEndPercent = duration ? clamp((trimEnd / duration) * 100, 0, 100) : 0;
-  const effectiveTrimStart = hasTrimStartMark ? trimStart : 0;
-  const effectiveTrimEnd = hasTrimEndMark ? trimEnd : duration || Number(selectedVideo?.duration) || trimEnd;
-  const trimRangeDuration = Math.max(0, effectiveTrimEnd - effectiveTrimStart);
+  const videoStartOffset = Math.max(0, Number(selectedVideo?.startOffset) || 0);
   const playerDuration = duration || Number(selectedVideo?.duration) || 0;
+  const progressPercent = playerDuration ? clamp((currentTime / playerDuration) * 100, 0, 100) : 0;
+  const currentCutPoint = clamp(currentTime, 0, playerDuration || 0);
+  const remainingDuration = Math.max(0, playerDuration - currentCutPoint);
   const timelineBackground = timelineProgressBackground(progressPercent);
-  const trimPreviewBackground = `linear-gradient(90deg, rgba(201,58,58,0.2) 0%, rgba(201,58,58,0.2) ${trimStartPercent}%, ${TRIM_START_COLOR} ${trimStartPercent}%, ${TRIM_START_COLOR} ${trimEndPercent}%, rgba(201,58,58,0.2) ${trimEndPercent}%, rgba(201,58,58,0.2) 100%)`;
 
   useEffect(() => {
     let ignore = false;
@@ -207,10 +204,6 @@ export function LibraryPage({ showToast }) {
     const nextDuration = Number(selectedVideo?.duration) || 0;
     setCurrentTime(0);
     setDuration(nextDuration);
-    setTrimStart(0);
-    setTrimEnd(nextDuration);
-    setHasTrimStartMark(false);
-    setHasTrimEndMark(false);
     setIsPaused(true);
   }, [selectedVideoId, selectedVideo]);
 
@@ -223,8 +216,7 @@ export function LibraryPage({ showToast }) {
     const syncPlaybackTime = () => {
       const video = videoRef.current;
       if (video) {
-        const nextTime = video.currentTime || 0;
-        setCurrentTime(nextTime);
+        setCurrentTime(toVisibleTime(video.currentTime || 0));
       }
 
       frameId = window.requestAnimationFrame(syncPlaybackTime);
@@ -232,7 +224,7 @@ export function LibraryPage({ showToast }) {
 
     frameId = window.requestAnimationFrame(syncPlaybackTime);
     return () => window.cancelAnimationFrame(frameId);
-  }, [isPaused, selectedVideoId]);
+  }, [isPaused, selectedVideoId, selectedVideo?.startOffset, duration]);
 
   useEffect(() => {
     if (!hasProcessingVideos) {
@@ -274,8 +266,25 @@ export function LibraryPage({ showToast }) {
     onKeyDown: handleKeyboardShortcut,
     onKeyUp: handleKeyboardShortcutRelease,
     onBlur: restorePlaybackAfterArrowHold,
-    dependencies: [selectedVideoId, duration, trimStart, trimEnd, hasTrimStartMark, hasTrimEndMark, isTrimming]
+    dependencies: [selectedVideoId, selectedVideo?.duration, selectedVideo?.startOffset, selectedVideo?.processing?.id, duration, currentTime, isTrimming]
   });
+
+  function getPlaybackBounds() {
+    const visibleDuration = duration || Number(selectedVideo?.duration) || 0;
+    const start = videoStartOffset;
+    const end = visibleDuration ? start + visibleDuration : Number.MAX_SAFE_INTEGER;
+    return { start, end, duration: visibleDuration };
+  }
+
+  function toVisibleTime(videoTime) {
+    const bounds = getPlaybackBounds();
+    return clamp((Number(videoTime) || 0) - bounds.start, 0, bounds.duration || Number.MAX_SAFE_INTEGER);
+  }
+
+  function toVideoTime(visibleTime) {
+    const bounds = getPlaybackBounds();
+    return bounds.start + clamp(Number(visibleTime) || 0, 0, bounds.duration || Number.MAX_SAFE_INTEGER);
+  }
 
   function handleKeyboardShortcut(event) {
     const arrowKeys = new Set(['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp']);
@@ -316,27 +325,14 @@ export function LibraryPage({ showToast }) {
 
     const key = event.key.toLowerCase();
 
-    if (event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && ['z', 'x', 'c'].includes(key)) {
+    if (event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && key === 'c') {
       if (event.repeat) {
         return;
       }
 
       event.preventDefault();
       event.stopPropagation();
-
-      if (key === 'z') {
-        markTrimStart();
-        return;
-      }
-
-      if (key === 'x') {
-        markTrimEnd();
-        return;
-      }
-
-      if (key === 'c') {
-        void handleTrimVideo();
-      }
+      void handleTrimVideo();
     }
   }
 
@@ -500,9 +496,10 @@ export function LibraryPage({ showToast }) {
           return;
         }
 
-        const actualTime = clamp(video.currentTime || targetTime, 0, duration || Number.MAX_SAFE_INTEGER);
+        const bounds = getPlaybackBounds();
+        const actualTime = clamp(video.currentTime || targetTime, bounds.start, bounds.end);
         activeState.reverseDisplayedTime = actualTime;
-        setCurrentTime(actualTime);
+        setCurrentTime(toVisibleTime(actualTime));
         scheduleStep(REVERSE_STEP_MS);
       };
 
@@ -524,14 +521,15 @@ export function LibraryPage({ showToast }) {
       }
 
       const elapsed = Math.max((now - activeState.reverseBaseClock) / 1000, 0);
-      const desiredTime = clamp(activeState.reverseBaseTime - elapsed * rate, 0, duration || Number.MAX_SAFE_INTEGER);
+      const bounds = getPlaybackBounds();
+      const desiredTime = clamp(activeState.reverseBaseTime - elapsed * rate, bounds.start, bounds.end);
       const displayedTime = Number.isFinite(activeState.reverseDisplayedTime)
         ? activeState.reverseDisplayedTime
-        : video.currentTime || 0;
+        : clamp(video.currentTime || bounds.start, bounds.start, bounds.end);
       const distance = displayedTime - desiredTime;
       const seekDistance = clamp(Math.max(distance, minStepSeconds), 0, maxStepSeconds);
       const nextTime = displayedTime - seekDistance;
-      const clampedTime = clamp(nextTime, 0, duration || Number.MAX_SAFE_INTEGER);
+      const clampedTime = clamp(nextTime, bounds.start, bounds.end);
 
       if (Math.abs((video.currentTime || 0) - clampedTime) > REVERSE_SEEK_EPSILON_SECONDS) {
         waitForRenderedSeek(clampedTime);
@@ -595,7 +593,7 @@ export function LibraryPage({ showToast }) {
 
     if (key === 'ArrowUp' && video) {
       const shouldResume = !video.paused;
-      video.currentTime = 0;
+      video.currentTime = getPlaybackBounds().start;
       setCurrentTime(0);
       if (shouldResume) {
         video.play().catch(() => showToast('Nao foi possivel reproduzir.'));
@@ -610,6 +608,11 @@ export function LibraryPage({ showToast }) {
     }
 
     if (video.paused) {
+      const bounds = getPlaybackBounds();
+      if (video.currentTime < bounds.start || video.currentTime >= bounds.end - 0.03) {
+        video.currentTime = bounds.start;
+        setCurrentTime(0);
+      }
       video.play().catch(() => showToast('Nao foi possivel reproduzir.'));
       return;
     }
@@ -638,32 +641,18 @@ export function LibraryPage({ showToast }) {
 
   function handleSeek(value) {
     const video = videoRef.current;
-    if (!video || !duration) {
+    if (!video || !playerDuration) {
       return;
     }
 
-    const nextTime = (Number(value) / 1000) * duration;
-    video.currentTime = nextTime;
+    const nextTime = (Number(value) / 1000) * playerDuration;
+    video.currentTime = toVideoTime(nextTime);
     setCurrentTime(nextTime);
     playerRef.current?.focus({ preventScroll: true });
   }
 
   function handlePlayerTimeUpdate(event) {
-    setCurrentTime(event.currentTarget.currentTime || 0);
-  }
-
-  function markTrimStart() {
-    const nextStart = clamp(videoRef.current?.currentTime ?? currentTime, 0, duration || 0);
-    setTrimStart(Math.min(nextStart, trimEnd || duration || nextStart));
-    setHasTrimStartMark(true);
-    showToast('Inicio do corte marcado.');
-  }
-
-  function markTrimEnd() {
-    const nextEnd = clamp(videoRef.current?.currentTime ?? currentTime, 0, duration || 0);
-    setTrimEnd(Math.max(nextEnd, trimStart));
-    setHasTrimEndMark(true);
-    showToast('Fim do corte marcado.');
+    setCurrentTime(toVisibleTime(event.currentTarget.currentTime || 0));
   }
 
   function openLongCutPage() {
@@ -672,7 +661,7 @@ export function LibraryPage({ showToast }) {
     }
 
     if (isVideoProcessing(selectedVideo)) {
-      showToast(videoProcessingMessage(selectedVideo));
+      showToast(videoProcessingMessage(selectedVideo, authUser));
       return;
     }
 
@@ -684,21 +673,16 @@ export function LibraryPage({ showToast }) {
       return;
     }
 
-    if (!hasTrimStartMark && !hasTrimEndMark) {
-      showToast('Marque inicio ou fim antes de cortar.');
-      return;
-    }
-
     if (isVideoProcessing(selectedVideo)) {
-      showToast(videoProcessingMessage(selectedVideo));
+      showToast(videoProcessingMessage(selectedVideo, authUser));
       return;
     }
 
-    const cutStart = hasTrimStartMark ? trimStart : 0;
-    const cutEnd = hasTrimEndMark ? trimEnd : duration || Number(selectedVideo.duration) || trimEnd;
+    const cutStart = clamp(toVisibleTime(videoRef.current?.currentTime ?? toVideoTime(currentTime)), 0, playerDuration || duration || 0);
+    const cutEnd = playerDuration || duration || Number(selectedVideo.duration) || 0;
 
-    if (cutEnd <= cutStart || cutEnd - cutStart < 0.5) {
-      showToast('Marque um corte com pelo menos 0.5s.');
+    if (!cutEnd || cutStart < 0.5 || cutEnd - cutStart < 0.5) {
+      showToast('Avance o video para escolher onde o novo inicio vai ficar.');
       return;
     }
 
@@ -711,20 +695,23 @@ export function LibraryPage({ showToast }) {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ start: cutStart, end: cutEnd })
+        body: JSON.stringify({
+          teamId: selectedVideo.teamId || '',
+          start: cutStart,
+          end: cutEnd,
+          duration: cutEnd
+        })
       });
       const payload = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(payload.error || 'Nao foi possivel cortar o video.');
+        throw new Error(payload.error || 'Nao foi possivel cortar o inicio do video.');
       }
 
       if (response.status === 202) {
         if (payload.video) {
           setVideos((current) => current.map((video) => (video.id === payload.video.id ? payload.video : video)));
         }
-        setHasTrimStartMark(false);
-        setHasTrimEndMark(false);
         setIsPaused(true);
         showToast('Corte iniciado. O video continua disponivel para assistir e anotar.');
         return;
@@ -734,12 +721,11 @@ export function LibraryPage({ showToast }) {
       setVideos((current) => current.map((video) => (video.id === nextVideo.id ? nextVideo : video)));
       setCurrentTime(0);
       setDuration(Number(nextVideo.duration) || cutEnd - cutStart);
-      setTrimStart(0);
-      setTrimEnd(Number(nextVideo.duration) || cutEnd - cutStart);
-      setHasTrimStartMark(false);
-      setHasTrimEndMark(false);
+      if (videoRef.current) {
+        videoRef.current.currentTime = Number(nextVideo.startOffset) || 0;
+      }
       setIsPaused(true);
-      showToast('Video cortado.');
+      showToast('Inicio do video cortado.');
     } catch (error) {
       showToast(error.message);
     } finally {
@@ -792,7 +778,7 @@ export function LibraryPage({ showToast }) {
 
     const lockedVideo = videos.find((video) => video.playlistId === playlist.id && isVideoProcessing(video));
     if (lockedVideo) {
-      showToast(videoProcessingMessage(lockedVideo));
+      showToast(videoProcessingMessage(lockedVideo, authUser));
       return;
     }
 
@@ -860,7 +846,7 @@ export function LibraryPage({ showToast }) {
 
     const lockedVideo = videos.find((video) => selectedVisibleVideoIds.includes(video.id) && isVideoProcessing(video));
     if (lockedVideo) {
-      showToast(videoProcessingMessage(lockedVideo));
+      showToast(videoProcessingMessage(lockedVideo, authUser));
       return;
     }
 
@@ -907,7 +893,7 @@ export function LibraryPage({ showToast }) {
 
     const lockedVideo = videos.find((video) => selectedVisibleVideoIds.includes(video.id) && isVideoProcessing(video));
     if (lockedVideo) {
-      showToast(videoProcessingMessage(lockedVideo));
+      showToast(videoProcessingMessage(lockedVideo, authUser));
       return;
     }
 
@@ -1187,20 +1173,24 @@ export function LibraryPage({ showToast }) {
               isPaused={isPaused}
               timelineBackground={timelineBackground}
               onLoadedMetadata={(event) => {
-                const nextDuration = Number.isFinite(event.currentTarget.duration)
-                  ? event.currentTarget.duration
-                  : selectedVideo.duration || 0;
+                const mediaDuration = Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0;
+                const metadataDuration = Number(selectedVideo.duration) || 0;
+                const nextDuration = videoStartOffset
+                  ? Math.max(0, Math.min(metadataDuration || mediaDuration - videoStartOffset, mediaDuration - videoStartOffset))
+                  : mediaDuration || metadataDuration;
+                if (event.currentTarget.currentTime < videoStartOffset) {
+                  event.currentTarget.currentTime = videoStartOffset;
+                }
                 setDuration(nextDuration);
-                setTrimEnd((current) => (current > 0 ? Math.min(current, nextDuration) : nextDuration));
-                setCurrentTime(event.currentTarget.currentTime || 0);
+                setCurrentTime(toVisibleTime(event.currentTarget.currentTime || videoStartOffset));
                 setIsPaused(event.currentTarget.paused);
               }}
               onTimeUpdate={handlePlayerTimeUpdate}
-              onSeeked={(event) => setCurrentTime(event.currentTarget.currentTime || 0)}
+              onSeeked={(event) => setCurrentTime(toVisibleTime(event.currentTarget.currentTime || 0))}
               onPlay={() => setIsPaused(false)}
               onPause={(event) => {
                 setIsPaused(true);
-                setCurrentTime(event.currentTarget.currentTime || 0);
+                setCurrentTime(toVisibleTime(event.currentTarget.currentTime || 0));
               }}
               onEnded={() => setIsPaused(true)}
               onPrevious={() => selectAdjacentVideo(-1)}
@@ -1218,114 +1208,43 @@ export function LibraryPage({ showToast }) {
                   </div>
                 </div>
               }
-              timelineChildren={
-                <>
-                  {duration && hasTrimStartMark ? (
-                    <span
-                      aria-hidden="true"
-                      className="pointer-events-none absolute top-1/2 z-10 h-8 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-black/30 shadow-[0_0_0_2px_rgba(0,0,0,0.35)]"
-                      style={{
-                        left: `${trimStartPercent}%`,
-                        backgroundColor: TRIM_START_COLOR
-                      }}
-                    />
-                  ) : null}
-                  {duration && hasTrimEndMark ? (
-                    <span
-                      aria-hidden="true"
-                      className="pointer-events-none absolute top-1/2 z-10 h-8 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-black/30 shadow-[0_0_0_2px_rgba(0,0,0,0.35)]"
-                      style={{
-                        left: `${trimEndPercent}%`,
-                        backgroundColor: TRIM_END_COLOR
-                      }}
-                    />
-                  ) : null}
-                </>
-              }
             />
 
             {selectedVideo ? (
               <>
-                {isVideoProcessing(selectedVideo) ? (
+                {isVideoProcessingByOtherUser(selectedVideo, authUser) ? (
                   <div className="rounded-2xl border border-tactical-pitch/25 bg-tactical-pitch/10 px-4 py-3 text-sm font-black text-tactical-ink">
-                    {videoProcessingMessage(selectedVideo)} Voce ainda pode assistir e fazer anotacoes.
+                    {videoProcessingMessage(selectedVideo, authUser)} Voce ainda pode assistir e fazer anotacoes.
                   </div>
                 ) : null}
 
                 <div className="rounded-2xl border border-tactical-line/35 bg-tactical-bone/50 px-4 py-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <span className="block text-[0.68rem] font-black uppercase tracking-[0.24em] text-tactical-ash">Area de corte</span>
-                      <strong className="mt-1 block text-sm font-black text-tactical-ink">
-                        {formatDuration(effectiveTrimStart)} - {formatDuration(effectiveTrimEnd)} / {formatDuration(trimRangeDuration)}
-                      </strong>
+                    <div className="grid gap-1">
+                      <span className="text-center text-[0.52rem] font-black uppercase tracking-[0.14em] text-tactical-ash">Shift+C</span>
+                      <button
+                        type="button"
+                        className="tactical-button min-h-10 px-4"
+                        onClick={handleTrimVideo}
+                        disabled={isTrimming || isVideoProcessing(selectedVideo) || currentCutPoint < 0.5 || remainingDuration < 0.5}
+                      >
+                        {isTrimming ? 'Cortando' : 'Cortar inicio'}
+                      </button>
                     </div>
-                    <div className="flex flex-wrap items-end gap-2">
-                      <div className="grid gap-1">
-                        <span className="text-center text-[0.52rem] font-black uppercase tracking-[0.14em] text-tactical-ash">Shift+Z</span>
-                        <button type="button" className="tactical-button-secondary min-h-10 px-3" onClick={markTrimStart}>
-                          Inicio
-                        </button>
-                      </div>
-                      <div className="grid gap-1">
-                        <span className="text-center text-[0.52rem] font-black uppercase tracking-[0.14em] text-tactical-ash">Shift+X</span>
-                        <button type="button" className="tactical-button-secondary min-h-10 px-3" onClick={markTrimEnd}>
-                          Fim
-                        </button>
-                      </div>
-                      <div className="grid gap-1">
-                        <span className="text-center text-[0.52rem] font-black uppercase tracking-[0.14em] text-tactical-ash">Shift+C</span>
-                        <button
-                          type="button"
-                          className="tactical-button min-h-10 px-4"
-                          onClick={handleTrimVideo}
-                          disabled={isTrimming || isVideoProcessing(selectedVideo) || (!hasTrimStartMark && !hasTrimEndMark) || effectiveTrimEnd <= effectiveTrimStart}
-                        >
-                          {isTrimming ? 'Cortando' : 'Cortar'}
-                        </button>
-                      </div>
-                      <div className="grid gap-1">
-                        <span className="text-center text-[0.52rem] font-black uppercase tracking-[0.14em] text-tactical-ash">Jogo inteiro</span>
-                        <button
-                          type="button"
-                          className="inline-flex min-h-10 items-center justify-center rounded-xl border border-tactical-ember/25 bg-tactical-ember/10 px-3 text-sm font-black uppercase tracking-[0.18em] text-tactical-ink transition hover:border-tactical-ember hover:bg-tactical-ember hover:text-white"
-                          onClick={openLongCutPage}
-                          disabled={isVideoProcessing(selectedVideo)}
-                        >
-                          Corte longo
-                        </button>
-                      </div>
+                    <div className="grid gap-1">
+                      <span className="text-center text-[0.52rem] font-black uppercase tracking-[0.14em] text-tactical-ash">Jogo inteiro</span>
+                      <button
+                        type="button"
+                        className="inline-flex min-h-10 items-center justify-center rounded-xl border border-tactical-ember/25 bg-tactical-ember/10 px-3 text-sm font-black uppercase tracking-[0.18em] text-tactical-ink transition hover:border-tactical-ember hover:bg-tactical-ember hover:text-white"
+                        onClick={openLongCutPage}
+                        disabled={isVideoProcessing(selectedVideo)}
+                      >
+                        Corte longo
+                      </button>
                     </div>
                   </div>
-                  <div className="mt-4 h-3 overflow-hidden rounded-full bg-tactical-ink/12" style={{ background: trimPreviewBackground }} />
                 </div>
 
-                <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
-                <div className="min-w-0 rounded-xl border border-tactical-line/35 bg-tactical-bone/50 px-3 py-2">
-                  <span className="block text-[0.54rem] font-black uppercase tracking-[0.18em] text-tactical-ash">Playlist</span>
-                  <strong className="mt-1 block truncate text-sm font-black leading-tight text-tactical-ink">{selectedVideo.playlistName || 'Sem playlist'}</strong>
-                </div>
-                <div className="min-w-0 rounded-xl border border-tactical-line/35 bg-tactical-bone/50 px-3 py-2">
-                  <span className="block text-[0.54rem] font-black uppercase tracking-[0.18em] text-tactical-ash">Tipo</span>
-                  <strong className="mt-1 block truncate text-sm font-black leading-tight text-tactical-ink">{kindLabel(selectedVideo.kind)}</strong>
-                </div>
-                <div className="min-w-0 rounded-xl border border-tactical-line/35 bg-tactical-bone/50 px-3 py-2">
-                  <span className="block text-[0.54rem] font-black uppercase tracking-[0.18em] text-tactical-ash">Duracao</span>
-                  <strong className="mt-1 block truncate text-sm font-black leading-tight text-tactical-ink">{formatDuration(selectedVideo.duration)}</strong>
-                </div>
-                <div className="min-w-0 rounded-xl border border-tactical-line/35 bg-tactical-bone/50 px-3 py-2">
-                  <span className="block text-[0.54rem] font-black uppercase tracking-[0.18em] text-tactical-ash">Enviado por</span>
-                  <strong className="mt-1 block truncate text-sm font-black leading-tight text-tactical-ink">{selectedVideo.uploader || 'Equipe'}</strong>
-                </div>
-                <div className="min-w-0 rounded-xl border border-tactical-line/35 bg-tactical-bone/50 px-3 py-2">
-                  <span className="block text-[0.54rem] font-black uppercase tracking-[0.18em] text-tactical-ash">Tamanho</span>
-                  <strong className="mt-1 block truncate text-sm font-black leading-tight text-tactical-ink">{formatBytes(selectedVideo.size)}</strong>
-                </div>
-                <div className="min-w-0 rounded-xl border border-tactical-line/35 bg-tactical-bone/50 px-3 py-2">
-                  <span className="block text-[0.54rem] font-black uppercase tracking-[0.18em] text-tactical-ash">Data</span>
-                  <strong className="mt-1 block truncate text-sm font-black leading-tight text-tactical-ink">{formatDate(selectedVideo.createdAt)}</strong>
-                </div>
-              </div>
               </>
             ) : null}
           </div>
