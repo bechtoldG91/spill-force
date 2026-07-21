@@ -182,6 +182,7 @@ Variaveis principais:
 - `GLOBAL_ADMIN_EMAILS`: emails separados por virgula com permissao de admin global.
 - `MAX_UPLOAD_MB`: limite de upload por video.
 - `STORAGE_DIR`: pasta de videos e JSON.
+- `RAILWAY_VOLUME_MOUNT_PATH`: caminho do Volume anexado no Railway. O Railway cria essa variavel automaticamente.
 - `PUBLIC_DIR`: pasta servida pelo backend com o build do frontend.
 - `LOG_DIR`: pasta de logs/PIDs do supervisor local.
 
@@ -271,6 +272,10 @@ LOG_DIR=storage/.runtime
 GLOBAL_ADMIN_EMAILS=gbechtold91@gmail.com
 ```
 
+No Railway, `PORT` e `RAILWAY_VOLUME_MOUNT_PATH` sao definidos pela propria
+plataforma. Com um Volume anexado, o app usa esse caminho automaticamente para
+salvar contas, clubes, videos e JSON.
+
 Fluxo recomendado em servidor:
 
 ```bash
@@ -282,29 +287,41 @@ npm start
 Heroku executa `npm start` por padrao e o projeto tambem define
 `heroku-postbuild` para gerar `public/`.
 
-## Render
+## Railway
 
-O repositorio inclui `render.yaml` para criar um Web Service com Node, build de
-producao, variaveis e disco persistente.
+O repositorio inclui `railway.json` para configurar build, start, healthcheck e
+politica de restart no Railway.
 
-No Render Dashboard, crie um Blueprint apontando para:
+No Railway Dashboard, crie um novo projeto a partir do GitHub apontando para:
 
 ```text
 https://github.com/bechtoldG91/spill-force
 ```
 
-O Blueprint configura:
+O `railway.json` configura:
 
+- `builder`: `RAILPACK`
 - `buildCommand`: `npm ci --include=dev && npm run build`
 - `startCommand`: `npm start`
-- `HOST=0.0.0.0`
-- `NODE_ENV=production`
-- `JWT_SECRET` gerado automaticamente pelo Render
-- `GLOBAL_ADMIN_EMAILS=gbechtold91@gmail.com`
-- disco persistente em `/opt/render/project/src/storage`
+- `healthcheckPath`: `/api/health`
+- `restartPolicyType`: `ON_FAILURE`
 
-O disco persistente e necessario para preservar contas, clubes, videos e
-metadados JSON entre deploys e restarts.
+Configure as variaveis do servico:
+
+```bash
+NODE_ENV=production
+HOST=0.0.0.0
+JWT_SECRET=<valor-aleatorio-com-32+-caracteres>
+DATABASE_URL=json://storage
+PUBLIC_DIR=public
+GLOBAL_ADMIN_EMAILS=gbechtold91@gmail.com
+MAX_UPLOAD_MB=1024
+```
+
+Crie um Volume anexado ao servico. O Railway injeta `RAILWAY_VOLUME_MOUNT_PATH`
+automaticamente, e o app usa esse caminho como `storageDir`. Se o app estiver em
+producao no Railway sem Volume, ele encerra na inicializacao para evitar perda de
+contas e videos.
 
 ## PM2
 

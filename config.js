@@ -143,12 +143,22 @@ const isProduction = nodeEnv === 'production';
 const configuredJwtSecret = readString('JWT_SECRET', '');
 const jwtSecret = configuredJwtSecret || (!isProduction ? readOrCreateDevelopmentSecret() : randomBytes(32).toString('hex'));
 const databaseUrl = readString('DATABASE_URL', 'json://storage');
+const railwayVolumeMountPath = readString('RAILWAY_VOLUME_MOUNT_PATH', '');
+const configuredStorageDir = railwayVolumeMountPath || readString('STORAGE_DIR', '');
+const storageDir = resolvePath(configuredStorageDir, DEFAULT_STORAGE_DIR);
+const logDir = resolvePath(readString('LOG_DIR', ''), path.join(storageDir, '.runtime'));
+const isRailway = Boolean(readString('RAILWAY_PROJECT_ID', '') || readString('RAILWAY_SERVICE_ID', ''));
+const usesJsonStorage = /^json:\/\//i.test(databaseUrl);
 
 validateSecret('JWT_SECRET', configuredJwtSecret, { required: isProduction });
 validateDatabaseUrl(databaseUrl);
 
 if (!isProduction && !configuredJwtSecret) {
   validationWarnings.push('JWT_SECRET nao definido; usando segredo local persistido em storage/.runtime.');
+}
+
+if (isProduction && isRailway && usesJsonStorage && !railwayVolumeMountPath) {
+  validationErrors.push('Railway precisa de um Volume anexado para preservar contas, videos e JSON. Crie um Volume no servico antes de iniciar.');
 }
 
 const config = {
@@ -163,9 +173,10 @@ const config = {
   passwordHashRounds: readInteger('PASSWORD_HASH_ROUNDS', 12, { min: 8, max: 15 }),
   globalAdminEmails: readCsv('GLOBAL_ADMIN_EMAILS', ['gbechtold91@gmail.com']),
   maxUploadMb: readInteger('MAX_UPLOAD_MB', 1024, { min: 1, max: 102400 }),
-  storageDir: resolvePath(readString('STORAGE_DIR', ''), DEFAULT_STORAGE_DIR),
+  railwayVolumeMountPath,
+  storageDir,
   publicDir: resolvePath(readString('PUBLIC_DIR', ''), DEFAULT_PUBLIC_DIR),
-  logDir: resolvePath(readString('LOG_DIR', ''), DEFAULT_LOG_DIR)
+  logDir
 };
 
 function validateConfig() {
