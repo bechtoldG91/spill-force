@@ -53,6 +53,18 @@ async function route(req, res) {
   const requestUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const { pathname } = requestUrl;
 
+  if (pathname === '/api/health') {
+    if (req.method === 'GET' || req.method === 'HEAD') {
+      jsonResponse(res, 200, {
+        ok: true,
+        storage: config.railwayVolumeMountPath ? 'railway-volume' : 'local'
+      });
+      return;
+    }
+    methodNotAllowed(res);
+    return;
+  }
+
   if (pathname === '/api/auth/register') {
     if (req.method === 'POST') {
       await handleRegister(req, res);
