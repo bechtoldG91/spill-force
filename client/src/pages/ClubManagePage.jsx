@@ -818,10 +818,10 @@ export function ClubManagePage({ authUser, showToast, onAuthRefresh, onNotificat
               : undefined
           }
         >
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_20%,rgba(63,143,41,0.28),transparent_28%),linear-gradient(135deg,rgba(0,34,68,0.12),rgba(0,34,68,0.9))]" />
+          <div className="absolute inset-0 bg-tactical-ink/25" />
           {canEditTeamBranding ? (
             <div className="absolute right-4 top-4 z-10 flex flex-wrap justify-end gap-2">
-              <label className="inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/95 px-3 text-xs font-black uppercase tracking-[0.14em] text-tactical-ink shadow-xl transition hover:border-tactical-pitch/40 hover:text-tactical-pitch">
+              <label className="inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-white/30 bg-white px-3 text-sm font-bold text-tactical-ink shadow-panel transition hover:border-tactical-pitch/40 hover:text-tactical-pitch">
                 <Icon name="upload" className="h-4 w-4" />
                 {savingCover ? 'Salvando...' : team?.coverDataUrl ? 'Trocar fundo' : 'Adicionar fundo'}
                 <input
@@ -836,7 +836,7 @@ export function ClubManagePage({ authUser, showToast, onAuthRefresh, onNotificat
               {team?.coverDataUrl ? (
                 <button
                   type="button"
-                  className="min-h-10 rounded-xl border border-white/20 bg-tactical-ink/80 px-3 text-xs font-black uppercase tracking-[0.14em] text-white shadow-xl transition hover:bg-tactical-pitch"
+                  className="min-h-10 rounded-md border border-white/20 bg-tactical-ink/90 px-3 text-sm font-bold text-white shadow-panel transition hover:bg-tactical-pitch"
                   disabled={savingCover}
                   onClick={() => saveCoverPhoto('', 'Foto de fundo removida.')}
                 >
@@ -848,7 +848,7 @@ export function ClubManagePage({ authUser, showToast, onAuthRefresh, onNotificat
         </div>
 
         <div className="relative px-5 pb-5 sm:px-7 sm:pb-7">
-          <div className="relative z-10 -mt-20 flex flex-col gap-4 sm:-mt-24 sm:flex-row sm:items-end sm:justify-between">
+          <div className="relative z-10 -mt-16 flex min-w-0 flex-col gap-4 sm:flex-row sm:items-end">
             <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-end">
               <div className="relative w-fit shrink-0">
                 <TeamLogo team={team} className="h-32 w-32 border-4 border-white sm:h-40 sm:w-40" roundedClassName="rounded-full" />
@@ -872,8 +872,8 @@ export function ClubManagePage({ authUser, showToast, onAuthRefresh, onNotificat
                 ) : null}
               </div>
               <div className="min-w-0 pb-1">
-                <span className="block text-[0.68rem] font-black uppercase tracking-[0.24em] text-tactical-ash">Configuracoes</span>
-                <h1 className="mt-1 truncate text-3xl font-black uppercase tracking-[0.08em] text-tactical-ink sm:text-4xl">
+                <span className="block text-xs font-bold text-tactical-ash">Configurações do clube</span>
+                <h1 className="mt-1 truncate text-3xl font-black tracking-tight text-tactical-ink sm:text-4xl">
                   {team.name}
                 </h1>
                 <span className="mt-1 block truncate text-sm font-semibold text-tactical-ash">
@@ -881,21 +881,22 @@ export function ClubManagePage({ authUser, showToast, onAuthRefresh, onNotificat
                 </span>
               </div>
             </div>
-            <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:items-end">
-              <div className="w-fit rounded-full bg-tactical-pitch/10 px-3 py-2 text-xs font-black uppercase tracking-[0.16em] text-tactical-pitch">
+          </div>
+
+          <div className="mt-5 flex flex-col gap-3 border-t border-tactical-ink/10 pt-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="inline-flex w-fit rounded-md bg-tactical-pitch/10 px-3 py-2 text-sm font-bold text-tactical-pitch">
                 {roleLabel(team.role)}
               </div>
               {canDeleteTeam ? (
                 <button
                   type="button"
-                  className="h-11 rounded-full border border-red-300 bg-red-50 px-4 text-xs font-black uppercase tracking-[0.16em] text-red-700 transition hover:border-red-500 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="h-10 rounded-md border border-red-300 bg-white px-4 text-sm font-bold text-red-700 transition hover:border-red-500 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
                   disabled={deletingTeam}
                   onClick={deleteTeam}
                 >
                   {deletingTeam ? 'Excluindo...' : 'Excluir time'}
                 </button>
               ) : null}
-            </div>
           </div>
         </div>
       </article>

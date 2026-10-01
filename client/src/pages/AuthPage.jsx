@@ -1,6 +1,7 @@
 import { Link, useSearchParams } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { Icon } from '../components/Icons';
+import { ThemeToggle } from '../components/ThemeToggle';
 import authHeroImage from '../assets/spill-force-auth.png';
 
 const EMPTY_FORM = {
@@ -12,7 +13,7 @@ const EMPTY_FORM = {
   confirmPassword: ''
 };
 
-export function AuthPage({ mode = 'login', onLogin, onRegister, onForgotPassword, onResetPassword, showToast }) {
+export function AuthPage({ mode = 'login', onLogin, onRegister, onForgotPassword, onResetPassword, showToast, theme, onToggleTheme }) {
   const [searchParams] = useSearchParams();
   const [form, setForm] = useState(EMPTY_FORM);
   const [loading, setLoading] = useState(false);
@@ -73,15 +74,16 @@ export function AuthPage({ mode = 'login', onLogin, onRegister, onForgotPassword
           <span className="text-tactical-ink">Spill</span>
           <span className="text-tactical-pitch">&amp;Force</span>
         </div>
+        <ThemeToggle theme={theme} onToggle={onToggleTheme} showLabel />
       </header>
 
       <main className="mx-auto grid min-h-[calc(100vh-68px)] w-full max-w-[1120px] items-center gap-5 px-5 pb-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(340px,400px)]">
         <section className="tactical-dark-panel overflow-hidden px-5 py-5 sm:px-6 sm:py-6">
-          <div className="mx-auto max-w-[360px] overflow-hidden rounded-xl bg-white p-2 shadow-xl xl:max-w-[400px]">
+          <div className="theme-preserve-light mx-auto max-w-[360px] overflow-hidden rounded-xl bg-white p-2 shadow-xl xl:max-w-[400px]">
             <img
               src={authHeroImage}
               alt="Diagrama tatico Spill and Force"
-              className="aspect-[1/1] w-full rounded-lg bg-white object-contain"
+              className="theme-preserve-light aspect-[1/1] w-full rounded-lg bg-white object-contain"
             />
           </div>
           <div className="mt-5 grid gap-2 sm:grid-cols-3">

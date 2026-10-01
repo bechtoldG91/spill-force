@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { useCallback, useEffect, useState } from 'react';
 import { AppShell } from './components/AppShell';
+import { ThemeToggle } from './components/ThemeToggle';
 import { AccountPage } from './pages/AccountPage';
 import { AuthPage } from './pages/AuthPage';
 import { HomePage } from './pages/HomePage';
@@ -25,9 +26,21 @@ function Toast({ message }) {
   );
 }
 
-function AuthLoading() {
+const THEME_STORAGE_KEY = 'spill-force-theme';
+
+function readInitialTheme() {
+  const savedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+  if (savedTheme === 'light' || savedTheme === 'dark') {
+    return savedTheme;
+  }
+
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function AuthLoading({ theme, onToggleTheme }) {
   return (
     <div className="field-grid grid min-h-screen place-items-center bg-tactical-bone px-5 text-tactical-ink">
+      <ThemeToggle theme={theme} onToggle={onToggleTheme} className="fixed right-5 top-4" />
       <div className="tactical-panel w-full max-w-sm px-5 py-6 text-center">
         <div className="text-2xl font-black uppercase italic leading-none tracking-tight">
           <span className="text-tactical-ink">Spill</span>
@@ -40,11 +53,22 @@ function AuthLoading() {
 }
 
 export default function App() {
+  const [theme, setTheme] = useState(readInitialTheme);
   const [toast, setToast] = useState('');
   const [initialSession] = useState(() => readAuthSession());
   const [authUser, setAuthUser] = useState(() => initialSession?.user || null);
   const [authReady, setAuthReady] = useState(() => !initialSession?.token);
   const [clubNotificationsCount, setClubNotificationsCount] = useState(0);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((currentTheme) => (currentTheme === 'dark' ? 'light' : 'dark'));
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+    document.documentElement.style.colorScheme = theme;
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+  }, [theme]);
 
   const showToast = useCallback((message) => {
     setToast(String(message || ''));
@@ -278,7 +302,7 @@ export default function App() {
   if (!authReady) {
     return (
       <>
-        <AuthLoading />
+        <AuthLoading theme={theme} onToggleTheme={toggleTheme} />
         <Toast message={toast} />
       </>
     );
@@ -298,6 +322,8 @@ export default function App() {
                 onForgotPassword={handleForgotPassword}
                 onResetPassword={handleResetPassword}
                 showToast={showToast}
+                theme={theme}
+                onToggleTheme={toggleTheme}
               />
             }
           />
@@ -312,6 +338,8 @@ export default function App() {
                 onForgotPassword={handleForgotPassword}
                 onResetPassword={handleResetPassword}
                 showToast={showToast}
+                theme={theme}
+                onToggleTheme={toggleTheme}
               />
             }
           />
@@ -326,6 +354,8 @@ export default function App() {
                 onForgotPassword={handleForgotPassword}
                 onResetPassword={handleResetPassword}
                 showToast={showToast}
+                theme={theme}
+                onToggleTheme={toggleTheme}
               />
             }
           />
@@ -355,6 +385,8 @@ export default function App() {
               authUser={authUser}
               onLogout={handleLogout}
               clubNotificationsCount={clubNotificationsCount}
+              theme={theme}
+              onToggleTheme={toggleTheme}
             >
               <Routes key={authUser?.id || 'legacy'}>
                 <Route

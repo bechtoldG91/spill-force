@@ -794,11 +794,11 @@ export function TeamPage({ authUser, showToast, onAuthRefresh, clubNotifications
                 : undefined
             }
           >
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_20%,rgba(63,143,41,0.28),transparent_28%),linear-gradient(135deg,rgba(0,34,68,0.12),rgba(0,34,68,0.9))]" />
+            <div className="absolute inset-0 bg-tactical-ink/25" />
           </div>
 
           <div className="relative px-5 pb-5 sm:px-7 sm:pb-7">
-            <div className="relative z-10 -mt-20 flex flex-col gap-4 sm:-mt-24 sm:flex-row sm:items-end sm:justify-between">
+            <div className="relative z-10 -mt-16 flex min-w-0 flex-col gap-4 sm:flex-row sm:items-end">
               <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-end">
                 <TeamLogo
                   team={activeTeam}
@@ -806,8 +806,8 @@ export function TeamPage({ authUser, showToast, onAuthRefresh, clubNotifications
                   roundedClassName="rounded-full"
                 />
                 <div className="min-w-0 pb-1">
-                  <span className="block text-[0.68rem] font-black uppercase tracking-[0.24em] text-tactical-ash">Clube</span>
-                  <h1 className="mt-1 truncate text-3xl font-black uppercase tracking-[0.08em] text-tactical-ink sm:text-4xl">
+                  <span className="block text-xs font-bold text-tactical-ash">Clube</span>
+                  <h1 className="mt-1 truncate text-3xl font-black tracking-tight text-tactical-ink sm:text-4xl">
                     {activeTeam?.name || 'Sem time'}
                   </h1>
                   <span className="mt-1 block truncate text-sm font-semibold text-tactical-ash">
@@ -815,14 +815,16 @@ export function TeamPage({ authUser, showToast, onAuthRefresh, clubNotifications
                   </span>
                 </div>
               </div>
+            </div>
+
               {activeTeam ? (
-                <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:items-end">
+                <div className="mt-5 flex w-full flex-col gap-3 border-t border-tactical-ink/10 pt-4 sm:flex-row sm:items-center sm:justify-between">
                   {canEditEvents || !authUser?.globalAdmin ? (
-                    <div className="flex flex-wrap items-center justify-start gap-2 sm:justify-end">
+                    <div className="flex flex-wrap items-center gap-2">
                       {canEditEvents ? (
                         <Link
                           to="/club-manage"
-                          className="relative inline-flex h-11 items-center justify-center gap-2 rounded-full bg-tactical-ink px-4 text-xs font-black uppercase tracking-[0.16em] text-white transition hover:bg-tactical-pitch"
+                          className="relative inline-flex h-10 items-center justify-center gap-2 rounded-md bg-tactical-ink px-4 text-sm font-bold text-white transition hover:bg-tactical-pitch"
                         >
                           <Icon name="settings" className="h-4 w-4" />
                           Configuracoes
@@ -837,7 +839,7 @@ export function TeamPage({ authUser, showToast, onAuthRefresh, clubNotifications
                       {!authUser?.globalAdmin ? (
                         <>
                           <select
-                            className="h-11 min-w-[150px] rounded-full border border-tactical-pitch/20 bg-tactical-pitch/10 px-4 text-xs font-black uppercase tracking-[0.14em] text-tactical-pitch outline-none transition focus:border-tactical-pitch"
+                            className="h-10 min-w-[150px] rounded-md border border-tactical-pitch/20 bg-white px-3 text-sm font-bold text-tactical-pitch outline-none transition focus:border-tactical-pitch"
                             value={teamRoleDraft || activeTeam.role}
                             onChange={(event) => setTeamRoleDraft(event.target.value)}
                           >
@@ -851,7 +853,7 @@ export function TeamPage({ authUser, showToast, onAuthRefresh, clubNotifications
                           {hasRoleDraftChange ? (
                             <button
                               type="button"
-                              className="h-11 rounded-full bg-tactical-pitch px-4 text-xs font-black uppercase tracking-[0.16em] text-white transition hover:bg-tactical-ink disabled:cursor-not-allowed disabled:opacity-60"
+                              className="h-10 rounded-md bg-tactical-pitch px-4 text-sm font-bold text-white transition hover:bg-tactical-ink disabled:cursor-not-allowed disabled:opacity-60"
                               disabled={requestingRoleChange}
                               onClick={saveTeamRoleDraft}
                             >
@@ -861,7 +863,7 @@ export function TeamPage({ authUser, showToast, onAuthRefresh, clubNotifications
 
                           <button
                             type="button"
-                            className="h-11 rounded-full border border-red-300 bg-red-50 px-4 text-xs font-black uppercase tracking-[0.16em] text-red-700 transition hover:border-red-500 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            className="h-10 rounded-md border border-red-300 bg-white px-4 text-sm font-bold text-red-700 transition hover:border-red-500 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
                             disabled={leavingTeam}
                             onClick={leaveActiveTeam}
                           >
@@ -873,7 +875,6 @@ export function TeamPage({ authUser, showToast, onAuthRefresh, clubNotifications
                   ) : null}
                 </div>
               ) : null}
-            </div>
           </div>
         </article>
 

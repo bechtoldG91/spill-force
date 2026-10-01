@@ -3,9 +3,9 @@
 @tailwind utilities;
 
 @layer base {
-  html {
+html {
     color: #002244;
-    background: #f4f7f5;
+    background: #f2f4f3;
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
 
@@ -13,10 +13,8 @@
     margin: 0;
     min-width: 320px;
     min-height: 100vh;
-    background:
-      radial-gradient(circle at top left, rgba(63, 143, 41, 0.08), transparent 28%),
-      radial-gradient(circle at top right, rgba(0, 34, 68, 0.08), transparent 24%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(244, 247, 245, 0.94));
+    background: #f2f4f3;
+    line-height: 1.5;
   }
 
   * {
@@ -35,41 +33,46 @@
   }
 }
 
+html.dark {
+  color: #edf4f3;
+  background: #07111d;
+}
+
+html.dark body {
+  background: #07111d;
+}
+
 @layer components {
   .field-grid {
-    background-image:
-      linear-gradient(rgba(0, 34, 68, 0.045) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(0, 34, 68, 0.045) 1px, transparent 1px);
-    background-position: center;
-    background-size: 42px 42px;
+    background-image: none;
   }
 
   .tactical-panel {
-    @apply rounded-2xl border border-tactical-line/35 bg-white shadow-panel;
+    @apply rounded-lg border border-tactical-ink/10 bg-white shadow-panel;
   }
 
   .tactical-dark-panel {
-    @apply rounded-2xl border border-tactical-pitch/25 bg-tactical-ink text-white shadow-glow;
+    @apply rounded-lg border border-tactical-ink bg-tactical-ink text-white shadow-panel;
   }
 
   .tactical-button {
-    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-tactical-ink/10 bg-tactical-ink px-4 text-sm font-black uppercase tracking-[0.18em] text-white transition hover:border-tactical-pitch hover:bg-tactical-pitch;
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-tactical-ink bg-tactical-ink px-4 text-sm font-bold text-white transition hover:border-tactical-pitch hover:bg-tactical-pitch focus:outline-none focus:ring-2 focus:ring-tactical-pitch/25;
   }
 
   .tactical-button-secondary {
-    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-tactical-pitch/25 bg-tactical-pitch/10 px-4 text-sm font-black uppercase tracking-[0.18em] text-tactical-ink transition hover:border-tactical-ink hover:bg-tactical-ink hover:text-white;
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-tactical-ink/15 bg-white px-4 text-sm font-bold text-tactical-ink transition hover:border-tactical-pitch hover:text-tactical-pitch focus:outline-none focus:ring-2 focus:ring-tactical-pitch/20;
   }
 
   .tactical-input {
-    @apply h-11 w-full rounded-xl border border-tactical-line/45 bg-white px-4 text-sm text-tactical-ink outline-none transition placeholder:text-tactical-ash/75 focus:border-tactical-pitch focus:ring-2 focus:ring-tactical-pitch/20;
+    @apply h-11 w-full rounded-md border border-tactical-ink/15 bg-white px-3.5 text-sm text-tactical-ink outline-none transition placeholder:text-tactical-ash/70 focus:border-tactical-pitch focus:ring-2 focus:ring-tactical-pitch/15;
   }
 
   .tactical-textarea {
-    @apply min-h-28 w-full rounded-xl border border-tactical-line/45 bg-white px-4 py-3 text-sm text-tactical-ink outline-none transition placeholder:text-tactical-ash/75 focus:border-tactical-pitch focus:ring-2 focus:ring-tactical-pitch/20;
+    @apply min-h-28 w-full rounded-md border border-tactical-ink/15 bg-white px-3.5 py-3 text-sm text-tactical-ink outline-none transition placeholder:text-tactical-ash/70 focus:border-tactical-pitch focus:ring-2 focus:ring-tactical-pitch/15;
   }
 
   .tactical-label {
-    @apply mb-2 block text-[0.7rem] font-black uppercase tracking-[0.28em] text-tactical-ash;
+    @apply mb-1.5 block text-xs font-bold text-tactical-ash;
   }
 
   .timeline-slider {
@@ -170,4 +173,139 @@
   border-radius: 999px;
   border: 2px solid rgba(244, 247, 245, 0.92);
   background: rgba(63, 143, 41, 0.55);
+}
+
+/*
+ * O tema noturno fica centralizado aqui. As paginas continuam usando as mesmas
+ * classes e este bloco troca apenas as cores de superficie, texto e borda.
+ */
+.dark .field-grid,
+.dark .bg-tactical-bone {
+  background-color: #0b1724;
+}
+
+.dark .bg-tactical-bone\/35,
+.dark .bg-tactical-bone\/40,
+.dark .bg-tactical-bone\/45,
+.dark .bg-tactical-bone\/50,
+.dark .bg-tactical-bone\/55,
+.dark .bg-tactical-bone\/70,
+.dark .bg-tactical-bone\/80 {
+  background-color: rgba(7, 17, 29, 0.72);
+}
+
+.dark .tactical-panel,
+.dark .bg-white {
+  border-color: rgba(219, 227, 226, 0.14);
+  background-color: #122334;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 8px 24px rgba(0, 0, 0, 0.22);
+}
+
+.dark .bg-white\/85,
+.dark .bg-white\/95 {
+  background-color: rgba(18, 35, 52, 0.95);
+}
+
+.dark .theme-preserve-light {
+  background-color: #ffffff;
+}
+
+.dark .tactical-dark-panel {
+  border-color: rgba(219, 227, 226, 0.14);
+  background-color: #06111d;
+}
+
+.dark .tactical-button-secondary,
+.dark .tactical-input,
+.dark .tactical-textarea {
+  border-color: rgba(219, 227, 226, 0.2);
+  background-color: #172c3d;
+  color: #edf4f3;
+}
+
+.dark .tactical-button-secondary:hover {
+  border-color: #76c963;
+  color: #76c963;
+}
+
+.dark .text-tactical-ink {
+  color: #edf4f3;
+}
+
+.dark .text-tactical-ash,
+.dark .tactical-label {
+  color: #afbdc6;
+}
+
+.dark .text-tactical-ash\/70,
+.dark .text-tactical-ash\/75,
+.dark .text-tactical-ash\/80 {
+  color: rgba(191, 204, 211, 0.78);
+}
+
+.dark .text-tactical-pitch {
+  color: #76c963;
+}
+
+.dark .border-tactical-ink\/10,
+.dark .border-tactical-ink\/12,
+.dark .border-tactical-ink\/15,
+.dark .border-tactical-line\/35,
+.dark .border-tactical-line\/40,
+.dark .border-tactical-line\/45 {
+  border-color: rgba(219, 227, 226, 0.16);
+}
+
+.dark .bg-tactical-ink\/8 {
+  background-color: rgba(219, 227, 226, 0.08);
+}
+
+.dark .bg-\[\#dce8f5\] {
+  background-color: #14283a;
+}
+
+.dark .border-\[\#c7d7ea\] {
+  border-color: rgba(191, 210, 225, 0.22);
+}
+
+.dark .from-tactical-bone {
+  --tw-gradient-from: #0b1724 var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(11 23 36 / 0) var(--tw-gradient-to-position);
+}
+
+.dark .via-white {
+  --tw-gradient-to: rgb(18 35 52 / 0) var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), #122334 var(--tw-gradient-via-position), var(--tw-gradient-to);
+}
+
+.dark .to-tactical-bone\/70 {
+  --tw-gradient-to: rgb(11 23 36 / 0.7) var(--tw-gradient-to-position);
+}
+
+.dark .bg-red-50,
+.dark .bg-red-100 {
+  background-color: rgba(127, 29, 29, 0.28);
+}
+
+.dark .text-red-700,
+.dark .text-red-800 {
+  color: #fca5a5;
+}
+
+.dark .hover\:bg-tactical-pitch\/5:hover,
+.dark .hover\:bg-tactical-pitch\/10:hover {
+  background-color: rgba(118, 201, 99, 0.12);
+}
+
+.dark .hover\:text-tactical-pitch:hover {
+  color: #76c963;
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  border-color: #0b1724;
+  background: rgba(118, 201, 99, 0.6);
 }

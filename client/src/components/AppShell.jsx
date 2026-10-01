@@ -2,13 +2,15 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from './Icons';
 import { UserAvatar } from './UserAvatar';
+import { ThemeToggle } from './ThemeToggle';
 import { APP_USER, NAV_ITEMS } from '../lib/constants';
 import { cn, hasAnyTeamRole } from '../lib/utils';
 
-export function AppShell({ children, authUser, onLogout, clubNotificationsCount = 0 }) {
+export function AppShell({ children, authUser, onLogout, clubNotificationsCount = 0, theme, onToggleTheme }) {
   const currentUser = authUser || APP_USER;
   const location = useLocation();
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [openNavMenu, setOpenNavMenu] = useState('');
   const accountMenuRef = useRef(null);
   const hasClubNotifications = clubNotificationsCount > 0;
@@ -17,6 +19,18 @@ export function AppShell({ children, authUser, onLogout, clubNotificationsCount 
     setAccountMenuOpen(false);
     setOpenNavMenu('');
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (!mobileMenuOpen) {
+      return undefined;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [mobileMenuOpen]);
 
   useEffect(() => {
     function handleDocumentPointerDown(event) {
@@ -85,21 +99,67 @@ export function AppShell({ children, authUser, onLogout, clubNotificationsCount 
   }
 
   return (
-    <div className="field-grid min-h-screen bg-tactical-bone text-tactical-ink">
-      <header className="sticky top-0 z-30 border-b border-tactical-ink/10 bg-tactical-bone/95 backdrop-blur">
-        <div className="mx-auto flex max-w-[1500px] flex-col gap-3 px-4 py-3 xl:grid xl:min-h-[86px] xl:grid-cols-[minmax(220px,1fr)_auto_minmax(250px,1fr)] xl:items-center xl:gap-4 xl:px-6">
+    <div className="min-h-screen bg-tactical-bone text-tactical-ink">
+      <header className="sticky top-0 z-30 border-b border-tactical-ink/10 bg-white/95 lg:backdrop-blur">
+        <button
+          type="button"
+          aria-label="Fechar menu"
+          aria-hidden={!mobileMenuOpen}
+          tabIndex={mobileMenuOpen ? 0 : -1}
+          className={cn(
+            'fixed inset-0 z-40 bg-black/58 transition-opacity lg:hidden',
+            mobileMenuOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
+          )}
+          onClick={() => setMobileMenuOpen(false)}
+        />
+
+        <div className="mx-auto flex min-h-[68px] w-full max-w-[1180px] items-center gap-2 px-4 py-3 lg:grid lg:min-h-[72px] lg:grid-cols-[320px_minmax(0,1fr)_320px] lg:gap-6 lg:px-0">
+          <button
+            type="button"
+            className="tactical-button-secondary w-11 shrink-0 px-0 lg:hidden"
+            aria-label="Abrir menu"
+            aria-controls="mobile-navigation"
+            aria-expanded={mobileMenuOpen}
+            onClick={() => {
+              setAccountMenuOpen(false);
+              setMobileMenuOpen(true);
+            }}
+          >
+            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <path d="M4 7h16M4 12h16M4 17h16" />
+            </svg>
+          </button>
+
           <NavLink
             to="/"
-            className="flex min-w-0 items-center self-start text-2xl font-black uppercase italic leading-none tracking-tight xl:h-full xl:justify-self-center"
+            className="flex min-w-0 shrink-0 items-center justify-self-start text-xl font-black uppercase italic leading-none tracking-tight"
           >
             <span className="text-tactical-ink">Spill</span>
             <span className="text-tactical-pitch">&amp;Force</span>
           </NavLink>
 
           <nav
+            id="mobile-navigation"
             aria-label="Principal"
-            className="order-3 flex w-full max-w-full flex-wrap items-center gap-2 pb-1 xl:order-none xl:w-auto xl:justify-self-center xl:pb-0"
+            className={cn(
+              'fixed inset-y-0 left-0 z-50 flex w-[min(84vw,320px)] flex-col gap-2 overflow-y-auto border-r border-tactical-ink/10 bg-white p-4 shadow-2xl transition duration-200 lg:static lg:z-auto lg:flex lg:w-auto lg:max-w-full lg:translate-x-0 lg:flex-row lg:flex-wrap lg:items-center lg:gap-1.5 lg:overflow-visible lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none lg:justify-self-center',
+              mobileMenuOpen ? 'visible translate-x-0' : 'invisible -translate-x-full lg:visible'
+            )}
           >
+            <div className="mb-2 flex min-h-11 items-center justify-between border-b border-tactical-ink/10 pb-3 lg:hidden">
+              <strong className="text-sm font-black uppercase tracking-[0.16em] text-tactical-ink">Menu</strong>
+              <button
+                type="button"
+                aria-label="Fechar menu lateral"
+                className="grid h-10 w-10 place-items-center rounded-md border border-tactical-ink/10 text-tactical-ink"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <path d="m6 6 12 12M18 6 6 18" />
+                </svg>
+              </button>
+            </div>
+
             {NAV_ITEMS.map((item) => {
               const children = item.items ? visibleChildren(item) : [];
 
@@ -110,22 +170,19 @@ export function AppShell({ children, authUser, onLogout, clubNotificationsCount 
               return item.items ? (
                 <div
                   key={item.label}
-                  className="relative shrink-0"
-                  onMouseEnter={() => setOpenNavMenu(item.label)}
-                  onMouseLeave={() => setOpenNavMenu((current) => (current === item.label ? '' : current))}
-                  onFocusCapture={() => setOpenNavMenu(item.label)}
+                  className="relative w-full lg:w-auto lg:shrink-0"
                 >
                   <button
                     type="button"
                     aria-expanded={openNavMenu === item.label}
                     aria-haspopup="menu"
                     className={cn(
-                      'inline-flex min-h-11 items-center gap-2 rounded-xl border px-3 text-xs font-black uppercase tracking-[0.14em] transition sm:px-4 sm:text-sm sm:tracking-[0.18em]',
+                      'inline-flex min-h-12 w-full items-center justify-start gap-3 rounded-md border px-4 text-sm font-bold transition lg:min-h-10 lg:w-auto lg:justify-center lg:gap-2 lg:px-3',
                       isGroupActive({ ...item, items: children })
                         ? 'border-tactical-pitch bg-tactical-pitch text-white shadow-glow'
                         : 'border-tactical-ink/10 bg-white text-tactical-ink hover:border-tactical-pitch/35 hover:bg-tactical-pitch/10'
                     )}
-                    onClick={() => setOpenNavMenu(item.label)}
+                    onClick={() => setOpenNavMenu((current) => (current === item.label ? '' : item.label))}
                   >
                     {renderNavIcon(item.icon)}
                     {item.label}
@@ -141,13 +198,15 @@ export function AppShell({ children, authUser, onLogout, clubNotificationsCount 
 
                   <div
                     className={cn(
-                      'absolute left-0 top-full z-50 min-w-56 pt-2 transition duration-150',
-                      openNavMenu === item.label ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
+                      'relative z-50 w-full pt-1 transition duration-150 lg:absolute lg:left-0 lg:top-full lg:min-w-56 lg:pt-2',
+                      openNavMenu === item.label
+                        ? 'block pointer-events-auto opacity-100'
+                        : 'hidden pointer-events-none opacity-0 lg:block'
                     )}
                   >
                     <div
                       className={cn(
-                        'overflow-hidden rounded-2xl border border-tactical-ink/10 bg-white p-1.5 text-tactical-ink shadow-2xl transition duration-150',
+                      'overflow-hidden rounded-lg border border-tactical-ink/10 bg-white p-1.5 text-tactical-ink shadow-panel transition duration-150',
                         openNavMenu === item.label ? 'translate-y-0' : 'translate-y-1'
                       )}
                     >
@@ -155,10 +214,13 @@ export function AppShell({ children, authUser, onLogout, clubNotificationsCount 
                         <NavLink
                           key={child.to}
                           to={child.to}
-                          onClick={() => setOpenNavMenu('')}
+                          onClick={() => {
+                            setOpenNavMenu('');
+                            setMobileMenuOpen(false);
+                          }}
                           className={({ isActive }) =>
                             cn(
-                              'flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-black uppercase tracking-[0.12em] transition',
+                              'flex min-h-10 items-center gap-3 rounded-md px-3 text-sm font-semibold transition',
                               isActive ? 'bg-tactical-pitch text-white' : 'text-tactical-ink hover:bg-tactical-pitch/10 hover:text-tactical-pitch'
                             )
                           }
@@ -177,12 +239,13 @@ export function AppShell({ children, authUser, onLogout, clubNotificationsCount 
                   to={item.to}
                   className={({ isActive }) =>
                     cn(
-                      'inline-flex min-h-11 shrink-0 items-center gap-2 rounded-xl border px-3 text-xs font-black uppercase tracking-[0.14em] transition sm:px-4 sm:text-sm sm:tracking-[0.18em]',
+                      'inline-flex min-h-12 w-full items-center justify-start gap-3 rounded-md border px-4 text-sm font-bold transition lg:min-h-10 lg:w-auto lg:shrink-0 lg:justify-center lg:gap-2 lg:px-3',
                       isActive
                         ? 'border-tactical-pitch bg-tactical-pitch text-white shadow-glow'
                         : 'border-tactical-ink/10 bg-white text-tactical-ink hover:border-tactical-pitch/35 hover:bg-tactical-pitch/10'
                     )
                   }
+                  onClick={() => setMobileMenuOpen(false)}
                 >
                   {renderNavIcon(item.icon)}
                   {item.label}
@@ -192,10 +255,11 @@ export function AppShell({ children, authUser, onLogout, clubNotificationsCount 
             })}
           </nav>
 
-          <div className="order-2 flex w-full items-center justify-between gap-3 sm:w-[280px] xl:order-none xl:justify-self-end">
+          <div className="ml-auto flex items-center gap-2 justify-self-end lg:ml-0 lg:w-[320px] lg:gap-3">
+            <ThemeToggle theme={theme} onToggle={onToggleTheme} />
             <div
               ref={accountMenuRef}
-              className="relative w-full"
+              className="relative shrink-0 lg:w-full"
               onMouseEnter={() => setAccountMenuOpen(true)}
               onMouseLeave={() => setAccountMenuOpen(false)}
               onFocusCapture={() => setAccountMenuOpen(true)}
@@ -204,18 +268,18 @@ export function AppShell({ children, authUser, onLogout, clubNotificationsCount 
                 type="button"
                 aria-expanded={accountMenuOpen}
                 aria-haspopup="menu"
-                className="inline-flex min-h-12 w-full items-center gap-3 rounded-2xl border border-tactical-ink/10 bg-white px-3 py-2 text-left transition hover:border-tactical-pitch/35 hover:bg-white/95 focus:outline-none"
+                className="inline-flex min-h-11 w-11 items-center justify-center gap-3 rounded-lg border border-tactical-ink/10 bg-white px-0 py-1 text-left transition hover:border-tactical-pitch/35 focus:outline-none focus:ring-2 focus:ring-tactical-pitch/15 lg:w-full lg:justify-start lg:px-3 lg:py-2"
                 onClick={() => setAccountMenuOpen(true)}
               >
-                <UserAvatar user={currentUser} className="h-11 w-11" />
-                <div className="min-w-0">
+                <UserAvatar user={currentUser} className="h-9 w-9 lg:h-11 lg:w-11" />
+                <div className="hidden min-w-0 lg:block">
                   <strong className="block truncate text-sm font-black text-tactical-ink">{currentUser.name}</strong>
                   <span className="block truncate text-xs font-semibold text-tactical-ash">{currentUser.email}</span>
                 </div>
                 <Icon
                   name="chevron-down"
                   className={cn(
-                    'h-4 w-4 shrink-0 text-tactical-ash transition duration-150',
+                    'hidden h-4 w-4 shrink-0 text-tactical-ash transition duration-150 lg:block',
                     accountMenuOpen ? 'rotate-180' : ''
                   )}
                 />
@@ -223,13 +287,13 @@ export function AppShell({ children, authUser, onLogout, clubNotificationsCount 
 
               <div
                 className={cn(
-                  'absolute right-0 top-full z-40 w-full pt-1 transition duration-150',
+                  'absolute right-0 top-full z-40 w-64 pt-1 transition duration-150 lg:w-full',
                   accountMenuOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
                 )}
               >
                 <div
                   className={cn(
-                    'overflow-hidden rounded-2xl border border-tactical-ink/10 bg-white text-tactical-ink shadow-2xl transition duration-150',
+                    'overflow-hidden rounded-lg border border-tactical-ink/10 bg-white text-tactical-ink shadow-panel transition duration-150',
                     accountMenuOpen ? 'translate-y-0' : 'translate-y-1'
                   )}
                 >
@@ -239,7 +303,7 @@ export function AppShell({ children, authUser, onLogout, clubNotificationsCount 
                       onClick={() => setAccountMenuOpen(false)}
                       className={({ isActive }) =>
                         cn(
-                          'flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold transition',
+                          'flex w-full items-center gap-3 rounded-md px-3 py-3 text-left text-sm font-semibold transition',
                           isActive ? 'bg-tactical-pitch text-white' : 'text-tactical-ink hover:bg-tactical-pitch/10 hover:text-tactical-pitch'
                         )
                       }
@@ -249,7 +313,7 @@ export function AppShell({ children, authUser, onLogout, clubNotificationsCount 
                     </NavLink>
                     <button
                       type="button"
-                      className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold text-tactical-ink transition hover:bg-tactical-pitch/10 hover:text-tactical-pitch"
+                      className="flex w-full items-center gap-3 rounded-md px-3 py-3 text-left text-sm font-semibold text-tactical-ink transition hover:bg-tactical-pitch/10 hover:text-tactical-pitch"
                       onClick={() => {
                         setAccountMenuOpen(false);
                         onLogout();
@@ -266,7 +330,7 @@ export function AppShell({ children, authUser, onLogout, clubNotificationsCount 
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-[1500px] px-4 py-5 lg:px-6 lg:py-6">{children}</main>
+      <main className="mx-auto w-full max-w-[1320px] px-4 pb-6 pt-4 lg:px-6 lg:py-6">{children}</main>
     </div>
   );
 }

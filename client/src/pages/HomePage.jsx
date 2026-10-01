@@ -202,24 +202,24 @@ export function HomePage({ showToast, authUser, clubNotificationsCount = 0, onAu
   );
 
   return (
-    <section className="mx-auto grid w-full max-w-[1180px] gap-5 lg:grid-cols-[260px_minmax(0,1fr)] xl:grid-cols-[280px_minmax(0,1fr)]">
-      <aside className="lg:sticky lg:top-28 lg:self-start">
-        <article className="tactical-panel relative pt-20">
+    <section className="mx-auto grid w-full max-w-[1180px] gap-4 lg:grid-cols-[260px_minmax(0,1fr)] lg:gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
+      <aside className="order-2 lg:sticky lg:top-28 lg:order-none lg:self-start">
+        <article className="tactical-panel relative pt-14 sm:pt-20">
           <div className="absolute left-1/2 top-3 -translate-x-1/2 -translate-y-[18%]">
-            <UserAvatar user={currentUser} className="h-28 w-28 border-4 border-white text-3xl" />
+            <UserAvatar user={currentUser} className="h-20 w-20 border-[3px] border-white text-2xl sm:h-28 sm:w-28 sm:border-4 sm:text-3xl" />
           </div>
 
-          <div className="space-y-4 px-5 pb-5 pt-12 text-center">
+          <div className="space-y-3 px-4 pb-4 pt-8 text-center sm:space-y-4 sm:px-5 sm:pb-5 sm:pt-12">
             <div className="min-w-0 text-center">
-              <h1 className="text-2xl font-black tracking-tight text-tactical-ink">{currentUser.name}</h1>
+              <h1 className="text-xl font-black tracking-tight text-tactical-ink sm:text-2xl">{currentUser.name}</h1>
             </div>
           </div>
 
           {!isAthleteUser ? (
             <div className="grid grid-cols-2 border-t border-tactical-ink/10">
               {profileStats.map((stat) => (
-                <div key={stat.label} className="px-3 py-4 text-center">
-                  <strong className="block text-2xl font-black text-tactical-ink">{stat.value}</strong>
+                <div key={stat.label} className="px-3 py-3 text-center sm:py-4">
+                  <strong className="block text-xl font-black text-tactical-ink sm:text-2xl">{stat.value}</strong>
                   <span className="mt-1 block text-sm text-tactical-ash">{stat.label}</span>
                 </div>
               ))}
@@ -303,7 +303,7 @@ export function HomePage({ showToast, authUser, clubNotificationsCount = 0, onAu
         ) : null}
       </aside>
 
-      <div className="flex w-full min-w-0 flex-col gap-5">
+      <div className="order-1 flex w-full min-w-0 flex-col gap-4 lg:order-none lg:gap-5">
         {clubNotificationsCount > 0 ? (
           <Link
             to="/club-manage"
@@ -322,7 +322,7 @@ export function HomePage({ showToast, authUser, clubNotificationsCount = 0, onAu
         ) : null}
 
         {canCreateClub ? (
-          <div className="tactical-panel px-6 py-10 text-center">
+          <div className="tactical-panel px-4 py-8 text-center sm:px-6 sm:py-10">
             <div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-tactical-pitch/10 text-tactical-pitch">
               <Icon name="team" className="h-7 w-7" />
             </div>
@@ -342,17 +342,17 @@ export function HomePage({ showToast, authUser, clubNotificationsCount = 0, onAu
         ) : null}
 
         {loading ? (
-          <div className="tactical-panel px-6 py-10 text-sm font-semibold uppercase tracking-[0.18em] text-tactical-ash">
+          <div className="tactical-panel px-4 py-8 text-sm font-semibold uppercase tracking-[0.18em] text-tactical-ash sm:px-6 sm:py-10">
             Carregando feed...
           </div>
         ) : null}
 
         {!loading && playlistFeed.length === 0 && !canCreateClub ? (
-          <div className="tactical-panel px-6 py-10 text-center">
+          <div className="tactical-panel px-4 py-8 text-center sm:px-6 sm:py-10">
             <div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-tactical-pitch/10 text-tactical-pitch">
               <Icon name="film" className="h-7 w-7" />
             </div>
-            <strong className="mt-4 block text-lg font-black uppercase tracking-[0.14em] text-tactical-ink">
+            <strong className="mt-4 block text-base font-black uppercase tracking-[0.12em] text-tactical-ink sm:text-lg sm:tracking-[0.14em]">
               Nenhum upload ainda
             </strong>
             <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-tactical-ash">
