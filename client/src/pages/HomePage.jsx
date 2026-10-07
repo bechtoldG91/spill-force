@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { APP_USER } from '../lib/constants';
 import { authFetch } from '../lib/auth';
-import { formatDate, formatDuration } from '../lib/utils';
+import { canManageTeamSettings, formatDate, formatDuration } from '../lib/utils';
 import { Icon } from '../components/Icons';
 import { UserAvatar } from '../components/UserAvatar';
 
@@ -385,9 +385,9 @@ export function HomePage({ showToast, authUser, clubNotificationsCount = 0, onAu
                 {(expandedPlaylists[entry.id] ? entry.videos : entry.videos.slice(0, 3)).map((video) => (
                   <Link
                     key={video.id}
-                    to={`/analise?video=${video.id}`}
+                    to={`${canManageTeamSettings(authUser) ? '/analise' : '/biblioteca'}?video=${video.id}`}
                     className="group flex flex-col gap-3 rounded-[1.15rem] border border-tactical-ink/10 bg-white px-3 py-3 transition hover:border-tactical-pitch/30 hover:bg-tactical-bone/35 sm:flex-row sm:items-center sm:gap-4"
-                    aria-label={`Abrir ${video.title} na analise`}
+                    aria-label={`Abrir ${video.title}`}
                   >
                     <div className="relative w-full shrink-0 overflow-hidden rounded-xl border border-tactical-ink/10 bg-tactical-ink sm:w-36">
                       <video src={video.url} muted playsInline preload="metadata" className="aspect-video w-full bg-black object-cover" />

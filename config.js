@@ -141,10 +141,12 @@ if (!ALLOWED_NODE_ENVS.has(nodeEnv)) {
 
 const isProduction = nodeEnv === 'production';
 const configuredJwtSecret = readString('JWT_SECRET', '');
+const globalAdminSetupToken = readString('GLOBAL_ADMIN_SETUP_TOKEN', '');
 const jwtSecret = configuredJwtSecret || (!isProduction ? readOrCreateDevelopmentSecret() : randomBytes(32).toString('hex'));
 const databaseUrl = readString('DATABASE_URL', 'json://storage');
 
 validateSecret('JWT_SECRET', configuredJwtSecret, { required: isProduction });
+validateSecret('GLOBAL_ADMIN_SETUP_TOKEN', globalAdminSetupToken, { required: isProduction });
 validateDatabaseUrl(databaseUrl);
 
 if (!isProduction && !configuredJwtSecret) {
@@ -162,6 +164,7 @@ const config = {
   jwtTtlSeconds: readInteger('JWT_TTL_SECONDS', 7 * 24 * 60 * 60, { min: 60, max: 60 * 60 * 24 * 365 }),
   passwordHashRounds: readInteger('PASSWORD_HASH_ROUNDS', 12, { min: 8, max: 15 }),
   globalAdminEmails: readCsv('GLOBAL_ADMIN_EMAILS', ['gbechtold91@gmail.com']),
+  globalAdminSetupToken,
   maxUploadMb: readInteger('MAX_UPLOAD_MB', 1024, { min: 1, max: 102400 }),
   storageDir: resolvePath(readString('STORAGE_DIR', ''), DEFAULT_STORAGE_DIR),
   publicDir: resolvePath(readString('PUBLIC_DIR', ''), DEFAULT_PUBLIC_DIR),

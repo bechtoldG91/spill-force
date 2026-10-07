@@ -24,7 +24,7 @@ export const NAV_ITEMS = [
     items: [
       { to: '/upload', label: 'Upload', icon: 'upload', roles: ['admin', 'treinador'] },
       { to: '/biblioteca', label: 'Biblioteca', icon: 'library', requiresTeam: true },
-      { to: '/analise', label: 'Analise', icon: 'analysis', requiresTeam: true }
+      { to: '/analise', label: 'Analise', icon: 'analysis', roles: ['admin', 'treinador'] }
     ]
   }
 ];

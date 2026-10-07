@@ -198,13 +198,13 @@ export default function App() {
     showToast('Login realizado.');
   }, [showToast]);
 
-  const handleRegister = useCallback(async ({ name, email, password, inviteCode }) => {
+  const handleRegister = useCallback(async ({ name, email, password, inviteCode, adminSetupCode }) => {
     const response = await authFetch('/api/auth/register', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ name, email, password, inviteCode })
+      body: JSON.stringify({ name, email, password, inviteCode, adminSetupCode })
     });
     const payload = await response.json().catch(() => ({}));
 
@@ -341,7 +341,7 @@ export default function App() {
   }
 
   const hasTeamMemberships = Boolean((authUser.teamMemberships || []).length);
-  const canCreateContent = canManageTeamSettings(authUser);
+  const canEditVideos = canManageTeamSettings(authUser);
   const canAccessTeamContent = Boolean(authUser.globalAdmin || hasTeamMemberships);
   const canManageClub = canManageTeamSettings(authUser);
 
@@ -423,13 +423,13 @@ export default function App() {
                 <Route path="/times" element={<Navigate to="/time" replace />} />
                 <Route path="/times.html" element={<Navigate to="/time" replace />} />
                 <Route path="/times/:teamId" element={<Navigate to="/time" replace />} />
-                <Route path="/upload" element={canCreateContent ? <UploadPage showToast={showToast} /> : <Navigate to="/biblioteca" replace />} />
+                <Route path="/upload" element={canEditVideos ? <UploadPage showToast={showToast} /> : <Navigate to="/biblioteca" replace />} />
                 <Route path="/upload.html" element={<Navigate to="/upload" replace />} />
                 <Route path="/biblioteca" element={canAccessTeamContent ? <LibraryPage showToast={showToast} authUser={authUser} /> : <Navigate to="/time" replace />} />
                 <Route path="/biblioteca.html" element={<Navigate to="/biblioteca" replace />} />
-                <Route path="/corte-longo" element={canAccessTeamContent ? <LongCutPage showToast={showToast} authUser={authUser} /> : <Navigate to="/time" replace />} />
+                <Route path="/corte-longo" element={canEditVideos ? <LongCutPage showToast={showToast} authUser={authUser} /> : <Navigate to="/biblioteca" replace />} />
                 <Route path="/corte-longo.html" element={<Navigate to="/corte-longo" replace />} />
-                <Route path="/analise" element={canAccessTeamContent ? <AnalysisPage showToast={showToast} authUser={authUser} /> : <Navigate to="/time" replace />} />
+                <Route path="/analise" element={canEditVideos ? <AnalysisPage showToast={showToast} authUser={authUser} /> : <Navigate to="/biblioteca" replace />} />
                 <Route path="/analise.html" element={<Navigate to="/analise" replace />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>

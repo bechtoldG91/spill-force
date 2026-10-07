@@ -30,7 +30,7 @@ As funcoes de clube sao:
 
 - `admin`: administra o clube, cria convites, altera funcoes, edita marca do clube e pode excluir o clube.
 - `treinador`: gerencia elenco, eventos e videos, mas nao pode criar/remover admins.
-- `atleta`: acessa o clube e videos permitidos, pode editar seus proprios dados esportivos.
+- `atleta`: acessa o clube, assiste aos videos permitidos e edita seus proprios dados esportivos.
 
 Regras importantes:
 
@@ -41,13 +41,17 @@ Regras importantes:
 - Cadastro sem convite e permitido, mas o usuario fica sem clube ate ter um pedido de entrada aprovado.
 - Cadastro com convite valido vincula o usuario diretamente ao clube e a funcao do convite.
 - Treinador pode convidar atletas e treinadores; apenas admin pode convidar admins.
+- Admin e treinador editam videos e tags e podem editar dados esportivos dos atletas.
 - Atleta pode alterar apenas seus proprios campos esportivos: apelido, camisa, setor e posicao.
+- Atleta assiste aos videos na biblioteca, sem acesso as ferramentas de edicao e analise.
 - Treinador e admin nao exibem campos de atleta como setor, posicao, camisa e apelido.
 - A troca de funcao dentro de um clube acontece por solicitacao e aprovacao.
 
 ## Admin global
 
 Admins globais sao configurados por email em `GLOBAL_ADMIN_EMAILS`.
+Em producao, o cadastro desse email tambem exige o codigo secreto
+`GLOBAL_ADMIN_SETUP_TOKEN`. O email sozinho nao concede permissao global.
 
 O admin global pode:
 
@@ -300,11 +304,28 @@ O Blueprint configura:
 - `HOST=0.0.0.0`
 - `NODE_ENV=production`
 - `JWT_SECRET` gerado automaticamente pelo Render
+- `GLOBAL_ADMIN_SETUP_TOKEN` gerado automaticamente pelo Render
 - `GLOBAL_ADMIN_EMAILS=gbechtold91@gmail.com`
 - disco persistente em `/opt/render/project/src/storage`
 
 O disco persistente e necessario para preservar contas, clubes, videos e
 metadados JSON entre deploys e restarts.
+
+Para publicar uma instalacao nova:
+
+1. Envie a versao desejada para a branch `main` no GitHub.
+2. Entre no Render e crie um Blueprint conectado ao repositorio acima.
+3. Revise o plano `starter` e o disco de 5 GB antes de confirmar a criacao.
+4. Aguarde o deploy ficar ativo e abra a URL HTTPS exibida pelo Render.
+5. Em `Environment`, copie o valor de `GLOBAL_ADMIN_SETUP_TOKEN`. Nao o envie
+   em mensagens nem o coloque no Git.
+6. Cadastre o email listado em `GLOBAL_ADMIN_EMAILS`, preenchendo o campo
+   `Codigo de administrador` com esse valor. Outros usuarios deixam o campo
+   vazio e solicitam entrada no clube ou usam um convite.
+
+O plano com disco tem cobranca. O servico gratuito do Render nao aceita disco
+persistente; nele, contas, clubes e videos podem desaparecer apos reinicio ou
+novo deploy. A URL publica continua exigindo login para acessar os dados do app.
 
 ## PM2
 

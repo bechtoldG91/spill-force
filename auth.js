@@ -342,12 +342,7 @@ async function deleteUserAccountData(repository, userId, { protectLastTeamAdmin 
 }
 
 function isGlobalAdmin(user) {
-  if (user?.globalAdmin === true) {
-    return true;
-  }
-
-  const email = safeText(user?.email, 160).toLowerCase();
-  return Boolean(email && config.globalAdminEmails.includes(email));
+  return user?.globalAdmin === true;
 }
 
 function findTeamMembership(user, teamId) {
@@ -498,6 +493,7 @@ async function handleRegister(req, res) {
   const password = String(payload.password || '');
   const name = normalizeName(payload.name, email);
   const inviteCode = safeText(payload.inviteCode || payload.invite || payload.code, 120);
+  const adminSetupCode = String(payload.adminSetupCode || '');
   const nameParts = splitNameParts(name);
 
   if (!email || !email.includes('@')) {
@@ -511,6 +507,10 @@ async function handleRegister(req, res) {
   }
 
   const isConfiguredGlobalAdmin = config.globalAdminEmails.includes(email);
+  if (isConfiguredGlobalAdmin && config.isProduction && !safeStringEqual(adminSetupCode, config.globalAdminSetupToken)) {
+    jsonResponse(res, 403, { error: 'Codigo de administrador invalido.' });
+    return;
+  }
   const result = await storageService.transaction(async (repository) => {
     const existing = await repository.findUserByEmail(email);
     if (existing) {

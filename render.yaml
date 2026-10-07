@@ -35,3 +35,5 @@ services:
         value: 1024
       - key: JWT_SECRET
         generateValue: true
+      - key: GLOBAL_ADMIN_SETUP_TOKEN
+        generateValue: true
