@@ -1,5 +1,4 @@
 const { randomUUID } = require('node:crypto');
-const bcrypt = require('bcryptjs');
 const { config } = require('./config');
 const { storageService } = require('./storage');
 
@@ -7,9 +6,9 @@ const TEST_TEAM_ID = 'spill-force-test-club';
 const TEST_TEAM_NAME = 'Clube de Teste';
 
 const TEST_ACCOUNTS = [
-  { email: 'admin@spillforce.test', name: 'Admin Teste', role: 'admin', passwordKey: 'testAdminPassword' },
-  { email: 'tecnico@spillforce.test', name: 'Tecnico Teste', role: 'treinador', passwordKey: 'testCoachPassword' },
-  { email: 'atleta@spillforce.test', name: 'Atleta Teste', role: 'atleta', passwordKey: 'testAthletePassword' }
+  { email: 'admin@spillforce.test', name: 'Admin Teste', role: 'admin', passwordHash: '$2b$12$MFbJbtV2779k2JNvjbfTNO58WDWwb44WHO/th8J5KwNpaWzEnMWCq' },
+  { email: 'tecnico@spillforce.test', name: 'Tecnico Teste', role: 'treinador', passwordHash: '$2b$12$y/qU.drtsonqEFnk3UdaNOSHYWKQDYwcDD.qkVjBSTPyJpmwY9/Ay' },
+  { email: 'atleta@spillforce.test', name: 'Atleta Teste', role: 'atleta', passwordHash: '$2b$12$M2rPlN4FJ9IKtmkB0o28B.eH0X4zGh1Sh27iP3f98n1s0JXVz7532' }
 ];
 
 async function seedTestAccounts() {
@@ -17,15 +16,11 @@ async function seedTestAccounts() {
     return;
   }
 
-  const passwordHashes = await Promise.all(
-    TEST_ACCOUNTS.map((account) => bcrypt.hash(config[account.passwordKey], config.passwordHashRounds))
-  );
-
   await storageService.transaction(async (repository) => {
     const now = new Date().toISOString();
     const usersByRole = new Map();
 
-    for (const [index, account] of TEST_ACCOUNTS.entries()) {
+    for (const account of TEST_ACCOUNTS) {
       const existing = await repository.findUserByEmail(account.email);
       if (existing && existing.demoAccount !== true) {
         throw new Error(`O email ${account.email} ja pertence a uma conta comum.`);
@@ -40,7 +35,7 @@ async function seedTestAccounts() {
         user = await repository.updateUser(existing.id, (current) => ({
           ...current,
           globalAdmin: false,
-          passwordHash: passwordHashes[index],
+          passwordHash: account.passwordHash,
           teamMemberships: [
             ...(Array.isArray(current.teamMemberships) ? current.teamMemberships : []).filter((item) => item?.teamId !== TEST_TEAM_ID),
             { ...membership, ...(current.teamMemberships || []).find((item) => item?.teamId === TEST_TEAM_ID), role: account.role }
@@ -59,7 +54,7 @@ async function seedTestAccounts() {
           initials: account.name.split(' ').map((part) => part[0]).join(''),
           globalAdmin: false,
           demoAccount: true,
-          passwordHash: passwordHashes[index],
+          passwordHash: account.passwordHash,
           teamMemberships: [membership],
           createdAt: now,
           updatedAt: now

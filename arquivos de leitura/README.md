@@ -307,24 +307,26 @@ O Blueprint configura:
 - `GLOBAL_ADMIN_SETUP_TOKEN` gerado automaticamente pelo Render
 - `GLOBAL_ADMIN_EMAILS=gbechtold91@gmail.com`
 - `SEED_TEST_ACCOUNTS=true` para recriar o clube e tres contas de teste
-- tres senhas diferentes geradas no Render, sem segredos no repositorio
+- tres contas de teste com hashes de senha no codigo, sem senhas legiveis no repositorio
 
 O Render gratuito desliga o servico apos 15 minutos sem trafego. Quando ele
 reinicia, as alteracoes locais podem desaparecer. O clube e as tres contas de
 teste sao recriados automaticamente; videos enviados, tags e outros dados do
 teste precisam ser refeitos.
+
 O Blueprint limita cada upload a 100 MB para este teste gratuito.
 
 Contas do `Clube de Teste`:
 
-| Funcao | Email | Senha no Render |
-| --- | --- | --- |
-| Admin do clube | `admin@spillforce.test` | `TEST_ADMIN_PASSWORD` |
-| Treinador | `tecnico@spillforce.test` | `TEST_COACH_PASSWORD` |
-| Atleta | `atleta@spillforce.test` | `TEST_ATHLETE_PASSWORD` |
+| Funcao | Email |
+| --- | --- |
+| Admin do clube | `admin@spillforce.test` |
+| Treinador | `tecnico@spillforce.test` |
+| Atleta | `atleta@spillforce.test` |
 
-As senhas ficam na pagina `Environment` do servico no Render. Nao as envie em
-mensagens nem as coloque no Git. Cada conta tem sua propria senha.
+Cada conta tem sua propria senha. O arquivo `test-accounts.js` guarda apenas
+hashes bcrypt; as senhas legiveis devem ser compartilhadas por canal privado
+com os testadores. O Render nao precisa de variaveis de senha para essas contas.
 
 Para publicar uma instalacao nova:
 
@@ -335,8 +337,8 @@ Para publicar uma instalacao nova:
    confira os limites de uso: trafego e minutos de build excedentes podem
    gerar cobranca. Sem metodo de pagamento, o Render suspende o uso excedente.
 4. Aguarde o deploy ficar ativo e abra a URL HTTPS exibida pelo Render.
-5. Em `Environment`, consulte as tres senhas geradas e entre com cada email
-   da tabela para testar as permissoes.
+5. Entre com cada email da tabela e a senha correspondente para testar as
+   permissoes.
 
 O email em `GLOBAL_ADMIN_EMAILS` pode criar uma conta de admin global usando o
 `GLOBAL_ADMIN_SETUP_TOKEN`, tambem guardado em `Environment`. Essa conta nao e

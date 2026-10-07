@@ -35,9 +35,3 @@ services:
         generateValue: true
       - key: SEED_TEST_ACCOUNTS
         value: "true"
-      - key: TEST_ADMIN_PASSWORD
-        generateValue: true
-      - key: TEST_COACH_PASSWORD
-        generateValue: true
-      - key: TEST_ATHLETE_PASSWORD
-        generateValue: true
