@@ -288,8 +288,8 @@ Heroku executa `npm start` por padrao e o projeto tambem define
 
 ## Render
 
-O repositorio inclui `render.yaml` para criar um Web Service com Node, build de
-producao, variaveis e disco persistente.
+O repositorio inclui `render.yaml` para criar um Web Service gratuito de testes
+com Node. Nao ha disco persistente nesse plano.
 
 No Render Dashboard, crie um Blueprint apontando para:
 
@@ -306,26 +306,42 @@ O Blueprint configura:
 - `JWT_SECRET` gerado automaticamente pelo Render
 - `GLOBAL_ADMIN_SETUP_TOKEN` gerado automaticamente pelo Render
 - `GLOBAL_ADMIN_EMAILS=gbechtold91@gmail.com`
-- disco persistente em `/opt/render/project/src/storage`
+- `SEED_TEST_ACCOUNTS=true` para recriar o clube e tres contas de teste
+- tres senhas diferentes geradas no Render, sem segredos no repositorio
 
-O disco persistente e necessario para preservar contas, clubes, videos e
-metadados JSON entre deploys e restarts.
+O Render gratuito desliga o servico apos 15 minutos sem trafego. Quando ele
+reinicia, as alteracoes locais podem desaparecer. O clube e as tres contas de
+teste sao recriados automaticamente; videos enviados, tags e outros dados do
+teste precisam ser refeitos.
+O Blueprint limita cada upload a 100 MB para este teste gratuito.
+
+Contas do `Clube de Teste`:
+
+| Funcao | Email | Senha no Render |
+| --- | --- | --- |
+| Admin do clube | `admin@spillforce.test` | `TEST_ADMIN_PASSWORD` |
+| Treinador | `tecnico@spillforce.test` | `TEST_COACH_PASSWORD` |
+| Atleta | `atleta@spillforce.test` | `TEST_ATHLETE_PASSWORD` |
+
+As senhas ficam na pagina `Environment` do servico no Render. Nao as envie em
+mensagens nem as coloque no Git. Cada conta tem sua propria senha.
 
 Para publicar uma instalacao nova:
 
 1. Envie a versao desejada para a branch `main` no GitHub.
 2. Entre no Render e crie um Blueprint conectado ao repositorio acima.
-3. Revise o plano `starter` e o disco de 5 GB antes de confirmar a criacao.
+3. Confirme que o Blueprint mostra o plano `free`, sem disco e sem mensalidade
+   do servico. Nao selecione um plano pago. Se a conta Render tiver cartao,
+   confira os limites de uso: trafego e minutos de build excedentes podem
+   gerar cobranca. Sem metodo de pagamento, o Render suspende o uso excedente.
 4. Aguarde o deploy ficar ativo e abra a URL HTTPS exibida pelo Render.
-5. Em `Environment`, copie o valor de `GLOBAL_ADMIN_SETUP_TOKEN`. Nao o envie
-   em mensagens nem o coloque no Git.
-6. Cadastre o email listado em `GLOBAL_ADMIN_EMAILS`, preenchendo o campo
-   `Codigo de administrador` com esse valor. Outros usuarios deixam o campo
-   vazio e solicitam entrada no clube ou usam um convite.
+5. Em `Environment`, consulte as tres senhas geradas e entre com cada email
+   da tabela para testar as permissoes.
 
-O plano com disco tem cobranca. O servico gratuito do Render nao aceita disco
-persistente; nele, contas, clubes e videos podem desaparecer apos reinicio ou
-novo deploy. A URL publica continua exigindo login para acessar os dados do app.
+O email em `GLOBAL_ADMIN_EMAILS` pode criar uma conta de admin global usando o
+`GLOBAL_ADMIN_SETUP_TOKEN`, tambem guardado em `Environment`. Essa conta nao e
+necessaria para os tres testes acima. A URL publica exige login para acessar
+os dados do app.
 
 ## PM2
 

@@ -4,14 +4,10 @@ services:
     runtime: node
     repo: https://github.com/bechtoldG91/spill-force
     branch: main
-    plan: starter
+    plan: free
     buildCommand: npm ci --include=dev && npm run build
     startCommand: npm start
     healthCheckPath: /
-    disk:
-      name: spill-force-storage
-      mountPath: /opt/render/project/src/storage
-      sizeGB: 5
     envVars:
       - key: NODE_ENV
         value: production
@@ -20,11 +16,11 @@ services:
       - key: DATABASE_URL
         value: json://storage
       - key: STORAGE_DIR
-        value: /opt/render/project/src/storage
+        value: storage
       - key: PUBLIC_DIR
         value: public
       - key: LOG_DIR
-        value: /opt/render/project/src/storage/.runtime
+        value: storage/.runtime
       - key: PASSWORD_HASH_ROUNDS
         value: 12
       - key: JWT_TTL_SECONDS
@@ -32,8 +28,16 @@ services:
       - key: GLOBAL_ADMIN_EMAILS
         value: gbechtold91@gmail.com
       - key: MAX_UPLOAD_MB
-        value: 1024
+        value: 100
       - key: JWT_SECRET
         generateValue: true
       - key: GLOBAL_ADMIN_SETUP_TOKEN
+        generateValue: true
+      - key: SEED_TEST_ACCOUNTS
+        value: "true"
+      - key: TEST_ADMIN_PASSWORD
+        generateValue: true
+      - key: TEST_COACH_PASSWORD
+        generateValue: true
+      - key: TEST_ATHLETE_PASSWORD
         generateValue: true

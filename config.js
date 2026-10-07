@@ -72,6 +72,18 @@ function readInteger(name, defaultValue, { min = Number.MIN_SAFE_INTEGER, max = 
   return value;
 }
 
+function readBoolean(name, defaultValue = false) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') {
+    return defaultValue;
+  }
+  if (raw === 'true' || raw === 'false') {
+    return raw === 'true';
+  }
+  validationErrors.push(`${name} deve ser true ou false.`);
+  return defaultValue;
+}
+
 function resolvePath(value, fallback) {
   const raw = value || fallback;
   return path.isAbsolute(raw) ? raw : path.resolve(ROOT_DIR, raw);
@@ -142,11 +154,23 @@ if (!ALLOWED_NODE_ENVS.has(nodeEnv)) {
 const isProduction = nodeEnv === 'production';
 const configuredJwtSecret = readString('JWT_SECRET', '');
 const globalAdminSetupToken = readString('GLOBAL_ADMIN_SETUP_TOKEN', '');
+const seedTestAccounts = readBoolean('SEED_TEST_ACCOUNTS');
+const testAdminPassword = readString('TEST_ADMIN_PASSWORD', '');
+const testCoachPassword = readString('TEST_COACH_PASSWORD', '');
+const testAthletePassword = readString('TEST_ATHLETE_PASSWORD', '');
 const jwtSecret = configuredJwtSecret || (!isProduction ? readOrCreateDevelopmentSecret() : randomBytes(32).toString('hex'));
 const databaseUrl = readString('DATABASE_URL', 'json://storage');
 
 validateSecret('JWT_SECRET', configuredJwtSecret, { required: isProduction });
 validateSecret('GLOBAL_ADMIN_SETUP_TOKEN', globalAdminSetupToken, { required: isProduction });
+if (seedTestAccounts) {
+  validateSecret('TEST_ADMIN_PASSWORD', testAdminPassword, { required: true });
+  validateSecret('TEST_COACH_PASSWORD', testCoachPassword, { required: true });
+  validateSecret('TEST_ATHLETE_PASSWORD', testAthletePassword, { required: true });
+  if (new Set([testAdminPassword, testCoachPassword, testAthletePassword]).size !== 3) {
+    validationErrors.push('As senhas das contas de teste devem ser diferentes.');
+  }
+}
 validateDatabaseUrl(databaseUrl);
 
 if (!isProduction && !configuredJwtSecret) {
@@ -165,6 +189,10 @@ const config = {
   passwordHashRounds: readInteger('PASSWORD_HASH_ROUNDS', 12, { min: 8, max: 15 }),
   globalAdminEmails: readCsv('GLOBAL_ADMIN_EMAILS', ['gbechtold91@gmail.com']),
   globalAdminSetupToken,
+  seedTestAccounts,
+  testAdminPassword,
+  testCoachPassword,
+  testAthletePassword,
   maxUploadMb: readInteger('MAX_UPLOAD_MB', 1024, { min: 1, max: 102400 }),
   storageDir: resolvePath(readString('STORAGE_DIR', ''), DEFAULT_STORAGE_DIR),
   publicDir: resolvePath(readString('PUBLIC_DIR', ''), DEFAULT_PUBLIC_DIR),
