@@ -99,7 +99,7 @@ async function ensureVideoExists(repository, id, scope) {
 
 async function handleGetAnnotations(req, res, id) {
   const teamId = getTeamIdFromRequest(req);
-  const access = await authorizeRoles(req, res, teamId, ['admin', 'treinador', 'atleta']);
+  const access = await authorizeRoles(req, res, teamId, ['admin', 'treinador']);
   if (!access) {
     return;
   }

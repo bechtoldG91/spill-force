@@ -21,6 +21,7 @@ import {
 } from '../components/player/playerUtils';
 import { authFetch } from '../lib/auth';
 import {
+  canManageTeamSettings,
   cn,
   formatDuration,
   isVideoProcessing,
@@ -47,6 +48,7 @@ function syncPlaylistCounts(playlists, videos) {
 
 export function LibraryPage({ showToast, authUser }) {
   const navigate = useNavigate();
+  const canEditVideos = canManageTeamSettings(authUser);
   const [searchParams] = useSearchParams();
   const queryVideoId = searchParams.get('video');
   const queryPlaylistId = searchParams.get('playlist');
@@ -325,7 +327,7 @@ export function LibraryPage({ showToast, authUser }) {
 
     const key = event.key.toLowerCase();
 
-    if (event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && key === 'c') {
+    if (canEditVideos && event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && key === 'c') {
       if (event.repeat) {
         return;
       }
@@ -656,7 +658,7 @@ export function LibraryPage({ showToast, authUser }) {
   }
 
   function openLongCutPage() {
-    if (!selectedVideo) {
+    if (!canEditVideos || !selectedVideo) {
       return;
     }
 
@@ -669,7 +671,7 @@ export function LibraryPage({ showToast, authUser }) {
   }
 
   async function handleTrimVideo() {
-    if (!selectedVideo || isTrimming) {
+    if (!canEditVideos || !selectedVideo || isTrimming) {
       return;
     }
 
@@ -772,7 +774,7 @@ export function LibraryPage({ showToast, authUser }) {
   }
 
   async function handleDeletePlaylist(playlist) {
-    if (!playlist || isDeletingPlaylist) {
+    if (!canEditVideos || !playlist || isDeletingPlaylist) {
       return;
     }
 
@@ -840,7 +842,7 @@ export function LibraryPage({ showToast, authUser }) {
   }
 
   async function handleDeleteSelectedVideos() {
-    if (!selectedVisibleVideoIds.length || isDeletingSelectedVideos || isMovingSelectedVideos) {
+    if (!canEditVideos || !selectedVisibleVideoIds.length || isDeletingSelectedVideos || isMovingSelectedVideos) {
       return;
     }
 
@@ -887,7 +889,7 @@ export function LibraryPage({ showToast, authUser }) {
   }
 
   async function handleMoveSelectedVideos() {
-    if (!selectedVisibleVideoIds.length || !bulkPlaylistTargetId || isMovingSelectedVideos || isDeletingSelectedVideos) {
+    if (!canEditVideos || !selectedVisibleVideoIds.length || !bulkPlaylistTargetId || isMovingSelectedVideos || isDeletingSelectedVideos) {
       return;
     }
 
@@ -961,7 +963,7 @@ export function LibraryPage({ showToast, authUser }) {
     <section className="grid gap-6 xl:grid-cols-[390px_minmax(0,1fr)]">
       <aside className="tactical-dark-panel flex min-h-[calc(100vh-8.5rem)] min-w-0 flex-col gap-5 overflow-hidden px-4 py-4">
         <div>
-          {selectedPlaylist ? (
+          {canEditVideos && selectedPlaylist ? (
             <div className="mb-4 grid gap-2">
               <button
                 type="button"
@@ -1071,15 +1073,17 @@ export function LibraryPage({ showToast, authUser }) {
                       </span>
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={() => handleDeletePlaylist(playlist)}
-                      aria-label={`Excluir playlist ${playlist.name}`}
-                      disabled={playlistHasProcessing || isDeletingPlaylist || isDeletingSelectedVideos || isMovingSelectedVideos}
-                      className="group inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-white/70 transition hover:border-red-400 hover:bg-red-500/12 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-45"
-                    >
-                      <Icon name="trash" className="h-4 w-4 transition-colors group-hover:text-red-400" />
-                    </button>
+                    {canEditVideos ? (
+                      <button
+                        type="button"
+                        onClick={() => handleDeletePlaylist(playlist)}
+                        aria-label={`Excluir playlist ${playlist.name}`}
+                        disabled={playlistHasProcessing || isDeletingPlaylist || isDeletingSelectedVideos || isMovingSelectedVideos}
+                        className="group inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-white/70 transition hover:border-red-400 hover:bg-red-500/12 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        <Icon name="trash" className="h-4 w-4 transition-colors group-hover:text-red-400" />
+                      </button>
+                    ) : null}
                   </div>
 
                   {isExpanded ? (
@@ -1096,29 +1100,31 @@ export function LibraryPage({ showToast, authUser }) {
 
                             return (
                               <div key={video.id} className="flex min-w-0 items-start gap-2">
-                                <button
-                                  type="button"
-                                  onClick={(event) => {
-                                    const shouldReplaceSelection = selectedPlaylistId !== playlist.id;
-                                    if (selectedPlaylistId !== playlist.id) {
-                                      setSelectedPlaylistId(playlist.id);
-                                    }
-                                    handleVideoSelectionToggle(video.id, {
-                                      shiftKey: event.shiftKey,
-                                      scopeVideos: playlistVideos,
-                                      replaceExisting: shouldReplaceSelection
-                                    });
-                                  }}
-                                  aria-label={isSelectedForBulk ? 'Remover selecao do video' : 'Selecionar video para acao em lote'}
-                                  className={cn(
-                                    'mt-1 grid h-6 w-6 shrink-0 place-items-center rounded-lg border transition',
-                                    isSelectedForBulk
-                                      ? 'border-tactical-pitch bg-tactical-pitch text-white'
-                                      : 'border-white/15 bg-white/5 text-transparent hover:border-tactical-pitch/45'
-                                  )}
-                                >
-                                  <span className={cn('block h-2.5 w-2.5 rounded-[3px]', isSelectedForBulk ? 'bg-white' : 'bg-transparent')} />
-                                </button>
+                                {canEditVideos ? (
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      const shouldReplaceSelection = selectedPlaylistId !== playlist.id;
+                                      if (selectedPlaylistId !== playlist.id) {
+                                        setSelectedPlaylistId(playlist.id);
+                                      }
+                                      handleVideoSelectionToggle(video.id, {
+                                        shiftKey: event.shiftKey,
+                                        scopeVideos: playlistVideos,
+                                        replaceExisting: shouldReplaceSelection
+                                      });
+                                    }}
+                                    aria-label={isSelectedForBulk ? 'Remover selecao do video' : 'Selecionar video para acao em lote'}
+                                    className={cn(
+                                      'mt-1 grid h-6 w-6 shrink-0 place-items-center rounded-lg border transition',
+                                      isSelectedForBulk
+                                        ? 'border-tactical-pitch bg-tactical-pitch text-white'
+                                        : 'border-white/15 bg-white/5 text-transparent hover:border-tactical-pitch/45'
+                                    )}
+                                  >
+                                    <span className={cn('block h-2.5 w-2.5 rounded-[3px]', isSelectedForBulk ? 'bg-white' : 'bg-transparent')} />
+                                  </button>
+                                ) : null}
 
                                 <button
                                   type="button"
@@ -1214,36 +1220,38 @@ export function LibraryPage({ showToast, authUser }) {
               <>
                 {isVideoProcessingByOtherUser(selectedVideo, authUser) ? (
                   <div className="rounded-2xl border border-tactical-pitch/25 bg-tactical-pitch/10 px-4 py-3 text-sm font-black text-tactical-ink">
-                    {videoProcessingMessage(selectedVideo, authUser)} Voce ainda pode assistir e fazer anotacoes.
+                    {videoProcessingMessage(selectedVideo, authUser)} Voce ainda pode assistir.
                   </div>
                 ) : null}
 
-                <div className="rounded-2xl border border-tactical-line/35 bg-tactical-bone/50 px-4 py-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="grid gap-1">
-                      <span className="text-center text-[0.52rem] font-black uppercase tracking-[0.14em] text-tactical-ash">Shift+C</span>
-                      <button
-                        type="button"
-                        className="tactical-button min-h-10 px-4"
-                        onClick={handleTrimVideo}
-                        disabled={isTrimming || isVideoProcessing(selectedVideo) || currentCutPoint < 0.5 || remainingDuration < 0.5}
-                      >
-                        {isTrimming ? 'Cortando' : 'Cortar inicio'}
-                      </button>
-                    </div>
-                    <div className="grid gap-1">
-                      <span className="text-center text-[0.52rem] font-black uppercase tracking-[0.14em] text-tactical-ash">Jogo inteiro</span>
-                      <button
-                        type="button"
-                        className="inline-flex min-h-10 items-center justify-center rounded-xl border border-tactical-ember/25 bg-tactical-ember/10 px-3 text-sm font-black uppercase tracking-[0.18em] text-tactical-ink transition hover:border-tactical-ember hover:bg-tactical-ember hover:text-white"
-                        onClick={openLongCutPage}
-                        disabled={isVideoProcessing(selectedVideo)}
-                      >
-                        Corte longo
-                      </button>
+                {canEditVideos ? (
+                  <div className="rounded-2xl border border-tactical-line/35 bg-tactical-bone/50 px-4 py-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="grid gap-1">
+                        <span className="text-center text-[0.52rem] font-black uppercase tracking-[0.14em] text-tactical-ash">Shift+C</span>
+                        <button
+                          type="button"
+                          className="tactical-button min-h-10 px-4"
+                          onClick={handleTrimVideo}
+                          disabled={isTrimming || isVideoProcessing(selectedVideo) || currentCutPoint < 0.5 || remainingDuration < 0.5}
+                        >
+                          {isTrimming ? 'Cortando' : 'Cortar inicio'}
+                        </button>
+                      </div>
+                      <div className="grid gap-1">
+                        <span className="text-center text-[0.52rem] font-black uppercase tracking-[0.14em] text-tactical-ash">Jogo inteiro</span>
+                        <button
+                          type="button"
+                          className="inline-flex min-h-10 items-center justify-center rounded-xl border border-tactical-ember/25 bg-tactical-ember/10 px-3 text-sm font-black uppercase tracking-[0.18em] text-tactical-ink transition hover:border-tactical-ember hover:bg-tactical-ember hover:text-white"
+                          onClick={openLongCutPage}
+                          disabled={isVideoProcessing(selectedVideo)}
+                        >
+                          Corte longo
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
+                ) : null}
 
               </>
             ) : null}

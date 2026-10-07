@@ -9,6 +9,7 @@ const EMPTY_FORM = {
   password: '',
   code: '',
   inviteCode: '',
+  adminSetupCode: '',
   confirmPassword: ''
 };
 
@@ -134,6 +135,18 @@ export function AuthPage({ mode = 'login', onLogin, onRegister, onForgotPassword
                   <span className="mt-1 block text-xs font-semibold text-tactical-ash">
                     Use um codigo para entrar direto no clube ou deixe em branco para solicitar entrada depois.
                   </span>
+                </label>
+
+                <label className="block">
+                  <span className="tactical-label">Codigo de administrador</span>
+                  <input
+                    className="tactical-input"
+                    value={form.adminSetupCode}
+                    onChange={(event) => setForm((current) => ({ ...current, adminSetupCode: event.target.value.trim() }))}
+                    placeholder="Somente para a conta administradora inicial"
+                    type="password"
+                    autoComplete="off"
+                  />
                 </label>
 
               </>

@@ -30,7 +30,7 @@ As funcoes de clube sao:
 
 - `admin`: administra o clube, cria convites, altera funcoes, edita marca do clube e pode excluir o clube.
 - `treinador`: gerencia elenco, eventos e videos, mas nao pode criar/remover admins.
-- `atleta`: acessa o clube e videos permitidos, pode editar seus proprios dados esportivos.
+- `atleta`: acessa o clube, assiste aos videos permitidos e edita seus proprios dados esportivos.
 
 Regras importantes:
 
@@ -41,13 +41,17 @@ Regras importantes:
 - Cadastro sem convite e permitido, mas o usuario fica sem clube ate ter um pedido de entrada aprovado.
 - Cadastro com convite valido vincula o usuario diretamente ao clube e a funcao do convite.
 - Treinador pode convidar atletas e treinadores; apenas admin pode convidar admins.
+- Admin e treinador editam videos e tags e podem editar dados esportivos dos atletas.
 - Atleta pode alterar apenas seus proprios campos esportivos: apelido, camisa, setor e posicao.
+- Atleta assiste aos videos na biblioteca, sem acesso as ferramentas de edicao e analise.
 - Treinador e admin nao exibem campos de atleta como setor, posicao, camisa e apelido.
 - A troca de funcao dentro de um clube acontece por solicitacao e aprovacao.
 
 ## Admin global
 
 Admins globais sao configurados por email em `GLOBAL_ADMIN_EMAILS`.
+Em producao, o cadastro desse email tambem exige o codigo secreto
+`GLOBAL_ADMIN_SETUP_TOKEN`. O email sozinho nao concede permissao global.
 
 O admin global pode:
 
@@ -284,8 +288,8 @@ Heroku executa `npm start` por padrao e o projeto tambem define
 
 ## Render
 
-O repositorio inclui `render.yaml` para criar um Web Service com Node, build de
-producao, variaveis e disco persistente.
+O repositorio inclui `render.yaml` para criar um Web Service gratuito de testes
+com Node. Nao ha disco persistente nesse plano.
 
 No Render Dashboard, crie um Blueprint apontando para:
 
@@ -300,11 +304,46 @@ O Blueprint configura:
 - `HOST=0.0.0.0`
 - `NODE_ENV=production`
 - `JWT_SECRET` gerado automaticamente pelo Render
+- `GLOBAL_ADMIN_SETUP_TOKEN` gerado automaticamente pelo Render
 - `GLOBAL_ADMIN_EMAILS=gbechtold91@gmail.com`
-- disco persistente em `/opt/render/project/src/storage`
+- `SEED_TEST_ACCOUNTS=true` para recriar o clube e tres contas de teste
+- tres contas de teste com hashes de senha no codigo, sem senhas legiveis no repositorio
 
-O disco persistente e necessario para preservar contas, clubes, videos e
-metadados JSON entre deploys e restarts.
+O Render gratuito desliga o servico apos 15 minutos sem trafego. Quando ele
+reinicia, as alteracoes locais podem desaparecer. O clube e as tres contas de
+teste sao recriados automaticamente; videos enviados, tags e outros dados do
+teste precisam ser refeitos.
+
+O Blueprint limita cada upload a 100 MB para este teste gratuito.
+
+Contas do `Clube de Teste`:
+
+| Funcao | Email |
+| --- | --- |
+| Admin do clube | `admin@spillforce.test` |
+| Treinador | `tecnico@spillforce.test` |
+| Atleta | `atleta@spillforce.test` |
+
+Cada conta tem sua propria senha. O arquivo `test-accounts.js` guarda apenas
+hashes bcrypt; as senhas legiveis devem ser compartilhadas por canal privado
+com os testadores. O Render nao precisa de variaveis de senha para essas contas.
+
+Para publicar uma instalacao nova:
+
+1. Envie a versao desejada para a branch `main` no GitHub.
+2. Entre no Render e crie um Blueprint conectado ao repositorio acima.
+3. Confirme que o Blueprint mostra o plano `free`, sem disco e sem mensalidade
+   do servico. Nao selecione um plano pago. Se a conta Render tiver cartao,
+   confira os limites de uso: trafego e minutos de build excedentes podem
+   gerar cobranca. Sem metodo de pagamento, o Render suspende o uso excedente.
+4. Aguarde o deploy ficar ativo e abra a URL HTTPS exibida pelo Render.
+5. Entre com cada email da tabela e a senha correspondente para testar as
+   permissoes.
+
+O email em `GLOBAL_ADMIN_EMAILS` pode criar uma conta de admin global usando o
+`GLOBAL_ADMIN_SETUP_TOKEN`, tambem guardado em `Environment`. Essa conta nao e
+necessaria para os tres testes acima. A URL publica exige login para acessar
+os dados do app.
 
 ## PM2
 

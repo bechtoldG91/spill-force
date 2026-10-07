@@ -36,6 +36,7 @@ const {
 } = require('./videos');
 const { handleGetAnnotations, handlePutAnnotations } = require('./annotations');
 const { serveVideo, serveStatic } = require('./static');
+const { seedTestAccounts } = require('./test-accounts');
 const {
   handleRegister,
   handleLogin,
@@ -432,6 +433,11 @@ recoverInterruptedVideoProcessing()
   .catch((error) => {
     console.error('[video-processing] falha ao recuperar processamentos interrompidos', error);
   })
-  .finally(() => {
+  .then(seedTestAccounts)
+  .then(() => {
     listen(config.port);
+  })
+  .catch((error) => {
+    console.error('[test-accounts] falha ao preparar contas de teste', error);
+    process.exit(1);
   });
